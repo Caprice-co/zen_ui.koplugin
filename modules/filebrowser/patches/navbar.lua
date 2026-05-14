@@ -1144,6 +1144,7 @@ local function apply_navbar()
         file_chooser._zen_navbar_key_patched = true
         local cls_kp = file_chooser.onKeyPress
         local cls_kr = file_chooser.onKeyRelease
+        local cls_ms = file_chooser.onMenuSelect
         local HOLD_DELAY = 0.4
         local _press_hold_fn = nil   -- scheduled hold callback (nil = not pending)
         local _press_ctx = nil       -- "navbar" or "filelist" when hold pending
@@ -1311,6 +1312,17 @@ local function apply_navbar()
             return cls_kr and cls_kr(fc, key)
         end
 
+        -- On non-touch, key-only devices (e.g Kindle 4 NT), Enter may be
+        -- delivered as the menu selection event for the still-selected book.
+        -- When our virtual navbar has focus, consume that path and activate the
+        -- focused tab instead, so the list's retained selection is not opened.
+        file_chooser.onMenuSelect = function(fc, item)
+            if _navbar_focused_idx then
+                activateNavbarTab(); return true
+            end
+            return cls_ms and cls_ms(fc, item)
+        end
+
         -- All d-pad moves dispatch as FocusMove events (args={dx,dy}), not onKeyPress.
         -- Patch onFocusMove to handle navbar focus cycling and last-row→navbar.
         local cls_fm = file_chooser.onFocusMove
@@ -1449,6 +1461,15 @@ local function apply_navbar()
             end
 
             -- Close this standalone view first
+            if tapped_id == "books" then
+                setActiveTab(tapped_id)
+                local cb = tab_callbacks[tapped_id]
+                if cb then cb() end
+                UIManager:close(menu)
+                if menu._zen_close_stack then menu._zen_close_stack() end
+                return true
+            end
+
             if menu.close_callback then
                 menu.close_callback()
             elseif menu.onClose then
@@ -1497,6 +1518,29 @@ local function apply_navbar()
         if Device:hasKeys() and not menu._zen_navbar_key_patched then
             menu._zen_navbar_key_patched = true
 
+            menu.key_events = menu.key_events or {}
+            menu.key_events.ZenNavbarFocusLeft = {
+                { "Left" },
+                event = "ZenNavbarFocusLeft",
+            }
+            menu.key_events.ZenNavbarFocusRight = {
+                { "Right" },
+                event = "ZenNavbarFocusRight",
+            }
+            menu.key_events.ZenNavbarFocusUp = {
+                { "Up" },
+                event = "ZenNavbarFocusUp",
+            }
+            menu.key_events.ZenNavbarFocusDown = {
+                { "Down" },
+                event = "ZenNavbarFocusDown",
+            }
+            menu.key_events.ZenNavbarConfirm = {
+                { "Press" },
+                { "Return" },
+                event = "ZenNavbarConfirm",
+            }
+
             local function repaintStandaloneNavbar()
                 local saved_active = active_tab
                 active_tab = view_tab_id
@@ -1526,6 +1570,14 @@ local function apply_navbar()
                 if tapped_id == view_tab_id then
                     menu.page = 1; menu:updateItems(); return
                 end
+                if tapped_id == "books" then
+                    setActiveTab(tapped_id)
+                    local cb = tab_callbacks[tapped_id]
+                    if cb then cb() end
+                    UIManager:close(menu)
+                    if menu._zen_close_stack then menu._zen_close_stack() end
+                    return
+                end
                 if menu.close_callback then menu.close_callback()
                 elseif menu.onClose then menu:onClose()
                 else UIManager:close(menu) end
@@ -1535,11 +1587,7 @@ local function apply_navbar()
                 if cb then cb() end
             end
 
-            -- D-pad moves arrive as FocusMove events, not onKeyPress.
-            local cls_sfm = menu.onFocusMove
-            menu.onFocusMove = function(m, args)
-                local dx = args and args[1] or 0
-                local dy = args and args[2] or 0
+            local function moveStandaloneNavbar(m, dx, dy)
                 local vis_tabs = getVisibleTabs()
                 local n = #vis_tabs
                 if n > 0 then
@@ -1556,12 +1604,44 @@ local function apply_navbar()
                         end
                         return true
                     end
-                    if dy == 1 and m.selected and m.layout
-                            and not m.layout[m.selected.y + 1] then
+                    if dy == 1 and (not m.selected or not m.layout
+                            or not m.layout[m.selected.y + 1]) then
                         focusStandaloneNavbar(vis_tabs)
                         repaintStandaloneNavbar(); return true
                     end
                 end
+                return false
+            end
+
+            function menu:onZenNavbarFocusLeft()
+                return moveStandaloneNavbar(self, -1, 0)
+            end
+
+            function menu:onZenNavbarFocusRight()
+                return moveStandaloneNavbar(self, 1, 0)
+            end
+
+            function menu:onZenNavbarFocusUp()
+                return moveStandaloneNavbar(self, 0, -1)
+            end
+
+            function menu:onZenNavbarFocusDown()
+                return moveStandaloneNavbar(self, 0, 1)
+            end
+
+            function menu:onZenNavbarConfirm()
+                if _navbar_focused_idx then
+                    activateStandaloneTab(); return true
+                end
+                return false
+            end
+
+            -- D-pad moves arrive as FocusMove events, not onKeyPress.
+            local cls_sfm = menu.onFocusMove
+            menu.onFocusMove = function(m, args)
+                local dx = args and args[1] or 0
+                local dy = args and args[2] or 0
+                if moveStandaloneNavbar(m, dx, dy) then return true end
                 return cls_sfm and cls_sfm(m, args)
             end
 
