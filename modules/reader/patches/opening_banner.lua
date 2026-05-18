@@ -208,7 +208,7 @@ local function apply_opening_banner()
             if not self_item.is_directory then
                 -- self[1][1][1]: FrameContainer/FakeCover inside CenterContainer.
                 local cover_frame = self_item[1] and self_item[1][1] and self_item[1][1][1]
-                
+
                 -- Use paintTo-snapshotted dimen if available (_zen_cover_dimen),
                 -- with flag+cell-math as fallback for items not yet painted.
                 local strip_h = self_item._zen_strip_h or 0
@@ -216,14 +216,15 @@ local function apply_opening_banner()
                 if rect then
                     _last_cover_dimen = { x = rect.x, y = rect.y, w = rect.w, h = rect.h }
                 end
-                
-                -- Bright covers have low lum values on eink (0=white), so dark banner when lum < 128.
+
+                -- Require high contrast: if the cover's bottom is bright (lum >= 128),
+                -- use a dark banner. If it's dark, use a light banner.
                 -- Default to dark when no cover bb is available (placeholder cell).
                 if _last_cover_dimen then
                     local cover_bb = _find_cover_bb(cover_frame or self_item, 0)
                     if cover_bb then
                         local lum = _sample_bottom_luminance(cover_bb)
-                        _last_cover_dimen.dark_banner = lum == nil or lum < 128
+                        _last_cover_dimen.dark_banner = lum == nil or lum >= 128
                     else
                         _last_cover_dimen.dark_banner = true
                     end
@@ -345,7 +346,9 @@ local function apply_opening_banner()
             _mask_bottom_corners(bb, x, y, w, h, r)
         end
         -- 3. Border (after masking so it is never erased)
-        _draw_border(bb, x, y, w, h, r, fg)
+        -- The banner border must match the cover's border (always COLOR_BLACK).
+        -- In night mode, KOReader inverts COLOR_BLACK to white automatically.
+        _draw_border(bb, x, y, w, h, r, Blitbuffer.COLOR_BLACK)
 
         local tw = TextWidget:new{
             text      = self.label or _("Opening"),
