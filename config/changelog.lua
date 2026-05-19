@@ -72,6 +72,7 @@ return {
         "Add 2:3 and 3:4 cover ration in uniform covers (Library > Folders > Covers)",
         "Fix bug in lockdown mode allowing context menu when disabled via settings",
         "Fix bug in search results always showing mosaic view",
+        "Fixed bugs in OPDS & respect new 3:4 cover ratio",
         "Bug fixes and performance improvements",
     },
 }
