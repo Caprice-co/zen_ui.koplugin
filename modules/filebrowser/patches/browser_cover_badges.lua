@@ -173,18 +173,34 @@ local function apply_browser_cover_badges()
         local orig_paintTo = MosaicMenuItem.paintTo
         if not orig_paintTo then return end
 
+        -- Walk the orig_paintTo upvalue chain to find the function that owns
+        -- corner_mark_size (KOReader's real paintTo), skipping any Zen UI wrappers.
+        local function get_real_paintTo(fn)
+            if type(fn) ~= "function" then return fn end
+            local inner
+            for i = 1, 128 do
+                local name, val = debug.getupvalue(fn, i)
+                if not name then break end
+                if name == "corner_mark_size" then return fn end
+                if not inner and name == "orig_paintTo" and type(val) == "function" then
+                    inner = val
+                end
+            end
+            return inner and get_real_paintTo(inner) or fn
+        end
+        local real_paintTo = get_real_paintTo(orig_paintTo)
 
         -- Build upvalue name→index map once at patch time for fast runtime reads.
         local uv_idx = {}
         for i = 1, 256 do
-            local name = debug.getupvalue(orig_paintTo, i)
+            local name = debug.getupvalue(real_paintTo, i)
             if not name then break end
             uv_idx[name] = i
         end
         local function uv(name)
             local idx = uv_idx[name]
             if not idx then return nil end
-            local _, v = debug.getupvalue(orig_paintTo, idx)
+            local _, v = debug.getupvalue(real_paintTo, idx)
             return v
         end
 
