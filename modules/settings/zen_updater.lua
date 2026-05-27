@@ -154,10 +154,8 @@ local function get_asset_info(release)
     if not release or type(release.assets) ~= "table" then
         return nil, "missing_assets_table"
     end
-    local saw_named_asset = false
     for _i, asset in ipairs(release.assets) do
         if asset.name == RELEASE_ASSET_NAME then
-            saw_named_asset = true
             if is_valid_asset_url(asset.browser_download_url) then
                 return {
                     url = asset.browser_download_url,
@@ -172,9 +170,6 @@ local function get_asset_info(release)
             )
             return nil, "invalid_asset_url"
         end
-    end
-    if not saw_named_asset then
-        return nil, "missing_named_asset"
     end
     return nil, "missing_named_asset"
 end
@@ -400,7 +395,7 @@ local function https_get(url)
     logger.dbg("ZenUpdater: GET", url)
     local body = {}
     local ok_req, req_err = pcall(function()
-        local _, code, _headers, status = https.request{
+        local _, code, headers, status = https.request{
             url     = url,
             headers = { ["User-Agent"] = "zen_ui.koplugin" },
             sink    = ltn12.sink.table(body),
@@ -414,6 +409,8 @@ local function https_get(url)
                 tostring(code),
                 "status=",
                 tostring(status),
+                "location=",
+                tostring(headers and headers.location),
                 "body=",
                 snippet
             )
@@ -747,9 +744,7 @@ local function build_single_release_bullets(notes)
         local line = raw:gsub("\r", "")
         local trimmed = line:gsub("^%s+", ""):gsub("%s+$", "")
         if trimmed ~= "" then
-            if trimmed:match("^##%s*") then
-                -- Skip section headings like "## What's changed" in this compact view.
-            else
+            if not trimmed:match("^##%s*") then
                 local item = trimmed:match("^[-*+]%s+(.+)$")
                     or trimmed:match("^%d+%.%s+(.+)$")
                 if item then
@@ -764,6 +759,8 @@ local function build_single_release_bullets(notes)
                         bullets[#bullets + 1] = plain
                     end
                 end
+            else
+                -- Skip section headings like "## What's changed" in this compact view.
             end
         end
     end
@@ -775,15 +772,15 @@ local function build_single_release_bullets(notes)
 end
 
 --- Run do_network_check() in a non-blocking subprocess via Trapper.
---- setup_fn(_co) -- optional; called with the coroutine so the caller can wire
----                   a cancel button via coroutine.resume(_co, false).
+--- setup_fn(co) -- optional; called with the coroutine so the caller can wire
+---                  a cancel button via coroutine.resume(co, false).
 --- on_done(net_ok) -- called when the subprocess completes.
 --- on_cancelled()  -- called when dismissed before completion; may be nil.
 local function network_check_async(trap_widget, setup_fn, on_done, on_cancelled)
     local Trapper = require("ui/trapper")
     Trapper:wrap(function()
-        local _co = coroutine.running()
-        if setup_fn then setup_fn(_co) end
+        local co = coroutine.running()
+        if setup_fn then setup_fn(co) end
         local completed, net_ok, has_upd, latest_ver, dl_url, latest_sha256, latest_notes =
             Trapper:dismissableRunInSubprocess(function()
                 local ok = do_network_check()
@@ -1203,23 +1200,23 @@ local function _do_install(screen, plugin_root, plugins_dir)
 
     -- Trapper:wrap() runs the function as a coroutine so UIManager stays alive.
     Trapper:wrap(function()
-        local _co = coroutine.running()
+        local co = coroutine.running()
         local timed_out = false
         local cancelled = false
 
-        -- Show Cancel button now that _co is available to receive the abort signal.
+        -- Show Cancel button now that co is available to receive the abort signal.
         -- Passing screen as trap_widget keeps ZenScreen on top (no invisible TrapWidget
         -- is stacked above it), so taps reach _on_button_action normally.
         screen._on_button_action = function()
             cancelled = true
-            coroutine.resume(_co, false)
+            coroutine.resume(co, false)
         end
         screen:update{ button = _("Cancel"), later_button = false, dismissable = false }
         UIManager:forceRePaint()
 
         local timeout_cb = function()
             timed_out = true
-            coroutine.resume(_co, false)
+            coroutine.resume(co, false)
         end
         UIManager:scheduleIn(INSTALL_TIMEOUT, timeout_cb)
 
@@ -1492,10 +1489,10 @@ function M.build_update_now_item(plugin)
                 UIManager:scheduleIn(0.1, function()
                     network_check_async(
                         screen,
-                        function(_co)
+                        function(co)
                             screen._on_button_action = function()
                                 screen._on_button_action = nil
-                                coroutine.resume(_co, false)
+                                coroutine.resume(co, false)
                             end
                         end,
                         function(net_ok)

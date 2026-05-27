@@ -30,13 +30,14 @@ runs:
       shell: bash
       run: |
         set +e
-        luacheck -q ${{ inputs.targets }} | tee /tmp/luacheck.out
+        luacheck -q ${{ inputs.targets }} 2>&1 | tee /tmp/luacheck.out
         luacheck_exit=${PIPESTATUS[0]}
         set -e
 
+        totals_line=$(grep -E '^Total: [0-9]+ warnings / [0-9]+ errors' /tmp/luacheck.out | tail -n 1 || true)
         errors=$(awk '/^Total: [0-9]+ warnings \/ [0-9]+ errors/{e=$5} END{print e}' /tmp/luacheck.out)
 
-        if [[ -z "$errors" ]]; then
+        if [[ -z "$errors" || -z "$totals_line" ]]; then
           if [[ "$luacheck_exit" -ne 0 ]]; then
             echo "Luacheck failed before reporting totals (exit: $luacheck_exit)."
             exit "$luacheck_exit"
