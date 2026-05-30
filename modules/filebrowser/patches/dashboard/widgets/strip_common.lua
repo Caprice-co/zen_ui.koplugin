@@ -44,10 +44,7 @@ function M.build_strip(ctx, source_key)
         }
     end
 
-    local gap = math.max(4, math.min(10, math.floor(width * 0.012)))
-    local total_gap = gap * (#books - 1)
     local cover_v_pad = math.max(2, math.floor(height * 0.06))
-    local slot_w = math.max(24, math.floor((width - total_gap) / #books))
     local slot_h = math.max(1, height - cover_v_pad * 2)
     local title_gap = show_strip_titles and math.max(1, math.floor(slot_h * 0.04)) or 0
     local title_h = show_strip_titles and math.max(14, math.floor(slot_h * 0.24)) or 0
@@ -60,18 +57,42 @@ function M.build_strip(ctx, source_key)
 
     local strip_title_face = Font:getFace("smallinfofont", Screen:scaleBySize(10))
 
-    local row = HorizontalGroup:new{ align = "center" }
-
+    local min_gap = math.max(4, math.min(10, math.floor(width * 0.012)))
+    local max_cover_w = math.max(24, math.floor((width - min_gap * (#books - 1)) / #books))
+    local items = {}
+    local covers_w = 0
     for _i, book in ipairs(books) do
-        local cover = cover_common.make_cover_widget(
+        local cover, cover_w = cover_common.make_cover_widget(
             book,
-            slot_w,
+            max_cover_w,
             cover_h,
             { border = 1, background = Blitbuffer.COLOR_LIGHT_GRAY }
         )
+        cover_w = cover_w or max_cover_w
+        covers_w = covers_w + cover_w
+        items[#items + 1] = {
+            book = book,
+            cover = cover,
+            w = cover_w,
+        }
+    end
+
+    local gap = 0
+    local extra_gap_px = 0
+    if #items > 1 then
+        local available_gap = math.max(min_gap * (#items - 1), width - covers_w)
+        gap = math.floor(available_gap / (#items - 1))
+        extra_gap_px = available_gap - gap * (#items - 1)
+    end
+
+    local row = HorizontalGroup:new{ align = "center" }
+
+    for _i, item in ipairs(items) do
+        local book = item.book
+        local item_w = item.w
 
         local tap = InputContainer:new{
-            dimen = Geom:new{ w = slot_w, h = slot_h },
+            dimen = Geom:new{ w = item_w, h = slot_h },
             ges_events = {
                 TapCover = {
                     GestureRange:new{ ges = "tap", range = Geom:new{
@@ -97,13 +118,13 @@ function M.build_strip(ctx, source_key)
             tap[1] = VerticalGroup:new{
                 align = "center",
                 CenterContainer:new{
-                    dimen = Geom:new{ w = slot_w, h = cover_h },
-                    cover,
+                    dimen = Geom:new{ w = item_w, h = cover_h },
+                    item.cover,
                 },
                 VerticalSpan:new{ width = title_gap },
                 TextBoxWidget:new{
                     text = book.title or "",
-                    width = slot_w,
+                    width = item_w,
                     height = title_h,
                     face = strip_title_face,
                     alignment = "center",
@@ -112,16 +133,20 @@ function M.build_strip(ctx, source_key)
                 },
             }
         else
-            tap[1] = CenterContainer:new{ dimen = Geom:new{ w = slot_w, h = slot_h }, cover }
+            tap[1] = CenterContainer:new{ dimen = Geom:new{ w = item_w, h = slot_h }, item.cover }
         end
 
         table.insert(row, tap)
-        if _i < #books then
-            table.insert(row, HorizontalSpan:new{ width = gap })
+        if _i < #items then
+            local gap_w = gap
+            if extra_gap_px > 0 then
+                gap_w = gap_w + 1
+                extra_gap_px = extra_gap_px - 1
+            end
+            table.insert(row, HorizontalSpan:new{ width = gap_w })
         end
     end
 
-    local row_w = slot_w * #books + total_gap
     return FrameContainer:new{
         width = width,
         height = height,
@@ -131,7 +156,7 @@ function M.build_strip(ctx, source_key)
         VerticalGroup:new{
             LeftContainer:new{
                 dimen = Geom:new{ w = width, h = height },
-                CenterContainer:new{ dimen = Geom:new{ w = row_w, h = height }, row },
+                CenterContainer:new{ dimen = Geom:new{ w = width, h = height }, row },
             },
         },
     }

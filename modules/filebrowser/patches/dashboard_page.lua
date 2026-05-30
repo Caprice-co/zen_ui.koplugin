@@ -3,6 +3,7 @@ local ConfigManager = require("config/manager")
 local book_status = require("common/book_status")
 local Blitbuffer = require("ffi/blitbuffer")
 local QUOTES = require("common/dashboard_quotes")
+local DashboardPresets = require("common/dashboard_presets")
 local Registry = require("modules/filebrowser/patches/dashboard/components/registry")
 local StandalonePage = require("modules/filebrowser/patches/standalone_page")
 
@@ -17,6 +18,19 @@ local DEFAULT_ROW_ORDER = {
     "featured_recent",
     "stats_triplet",
     "strip_tbr",
+    "featured_custom",
+    "featured_tbr",
+    "strip_recent",
+    "reading_goals",
+    "strip_custom",
+    "quotes",
+}
+
+local DEFAULT_ROW_ENABLED = {
+    datetime = true,
+    featured_recent = true,
+    quotes = true,
+    strip_recent = true,
 }
 
 local function copy_default_row_order()
@@ -27,13 +41,21 @@ local function copy_default_row_order()
     return out
 end
 
+local function copy_default_row_enabled()
+    local out = {}
+    for key, value in pairs(DEFAULT_ROW_ENABLED) do
+        out[key] = value
+    end
+    return out
+end
+
 local MODULE_TITLES = {
     datetime = "Today",
-    featured_reading = "Reading",
+    featured_custom = "Custom",
     featured_tbr = "To be Read",
     featured_recent = "Recently read",
     reading_goals = "Reading goals",
-    strip_reading = "Reading",
+    strip_custom = "Custom",
     strip_tbr = "To be Read",
     strip_recent = "Recently read",
     stats_triplet = "Reading stats",
@@ -74,11 +96,45 @@ local function ensure_strip_module_cfg(dcfg, module_id)
     return mcfg
 end
 
+local function migrate_custom_widget_ids(dcfg)
+    if type(dcfg.rows) == "table" and type(dcfg.rows.order) == "table" then
+        for _i, id in ipairs(dcfg.rows.order) do
+            if id == "featured_reading" then
+                dcfg.rows.order[_i] = "featured_custom"
+            elseif id == "strip_reading" then
+                dcfg.rows.order[_i] = "strip_custom"
+            end
+        end
+    end
+    if type(dcfg.rows) == "table" and type(dcfg.rows.enabled) == "table" then
+        if dcfg.rows.enabled.featured_custom == nil then
+            dcfg.rows.enabled.featured_custom = dcfg.rows.enabled.featured_reading
+        end
+        if dcfg.rows.enabled.strip_custom == nil then
+            dcfg.rows.enabled.strip_custom = dcfg.rows.enabled.strip_reading
+        end
+        dcfg.rows.enabled.featured_reading = nil
+        dcfg.rows.enabled.strip_reading = nil
+    end
+    if type(dcfg.modules) == "table" then
+        if type(dcfg.modules.featured_custom) ~= "table" and type(dcfg.modules.featured_reading) == "table" then
+            dcfg.modules.featured_custom = dcfg.modules.featured_reading
+        end
+        if type(dcfg.modules.strip_custom) ~= "table" and type(dcfg.modules.strip_reading) == "table" then
+            dcfg.modules.strip_custom = dcfg.modules.strip_reading
+        end
+        dcfg.modules.featured_reading = nil
+        dcfg.modules.strip_reading = nil
+    end
+end
+
 local function ensure_dashboard_widget_cfg(dcfg)
-    ensure_featured_module_cfg(dcfg, "featured_reading")
+    local featured_custom = ensure_featured_module_cfg(dcfg, "featured_custom")
+    if type(featured_custom.path) ~= "string" then featured_custom.path = nil end
     ensure_featured_module_cfg(dcfg, "featured_tbr")
     ensure_featured_module_cfg(dcfg, "featured_recent")
-    ensure_strip_module_cfg(dcfg, "strip_reading")
+    local strip_custom = ensure_strip_module_cfg(dcfg, "strip_custom")
+    if type(strip_custom.paths) ~= "table" then strip_custom.paths = {} end
     ensure_strip_module_cfg(dcfg, "strip_tbr")
     ensure_strip_module_cfg(dcfg, "strip_recent")
 end
@@ -109,6 +165,8 @@ local function ensure_dashboard_cfg(cfg)
     if type(cfg.group_view) ~= "table" then cfg.group_view = {} end
     if type(cfg.group_view.dashboard_page) ~= "table" then cfg.group_view.dashboard_page = {} end
     local dcfg = cfg.group_view.dashboard_page
+    DashboardPresets.ensurePresetState(dcfg)
+    migrate_custom_widget_ids(dcfg)
 
     if type(dcfg.rows) ~= "table" then dcfg.rows = {} end
     local rows = dcfg.rows
@@ -140,10 +198,7 @@ local function ensure_dashboard_cfg(cfg)
         end
     end
     if not had_enabled then
-        normalized_enabled = {}
-        for _i, id in ipairs(DEFAULT_ROW_ORDER) do
-            normalized_enabled[id] = true
-        end
+        normalized_enabled = copy_default_row_enabled()
     end
     for _i, comp in ipairs(Registry.list()) do
         if normalized_enabled[comp.id] == nil then
@@ -281,7 +336,8 @@ local function build_data_provider(cfg, dcfg)
     end
 
     local function featured_widget_for_source(source)
-        if source == "currently_reading" then return "featured_reading" end
+        if source == "custom_featured" then return "featured_custom" end
+        if source == "custom_strip" then return "featured_custom" end
         if source == "to_be_read" then return "featured_tbr" end
         return "featured_recent"
     end
@@ -489,10 +545,30 @@ local function build_data_provider(cfg, dcfg)
 
     local function collect_paths_for_source(source_key, limit)
         local source = source_key
-        if source ~= "currently_reading" and source ~= "to_be_read" then
+        if source ~= "custom_featured"
+                and source ~= "custom_strip"
+                and source ~= "currently_reading"
+                and source ~= "to_be_read" then
             source = "recently_read"
         end
         local lim = tonumber(limit) or 5000
+        if source == "custom_featured" then
+            local mcfg = dcfg and dcfg.modules and dcfg.modules.featured_custom or {}
+            local path = type(mcfg.path) == "string" and mcfg.path or nil
+            return path and { path } or {}
+        end
+        if source == "custom_strip" then
+            local mcfg = dcfg and dcfg.modules and dcfg.modules.strip_custom or {}
+            local paths = type(mcfg.paths) == "table" and mcfg.paths or {}
+            local out = {}
+            for _i, path in ipairs(paths) do
+                if type(path) == "string" and path ~= "" then
+                    out[#out + 1] = path
+                    if #out >= lim then break end
+                end
+            end
+            return out
+        end
         if source == "currently_reading" then
             return get_paths_by_status("reading", lim)
         end
@@ -516,7 +592,7 @@ local function build_data_provider(cfg, dcfg)
 
     function provider:getFeaturedBook(source_key, order_key)
         local paths = collect_paths_for_source(source_key)
-        if normalize_order(order_key) == "reverse" then
+        if source_key ~= "custom_featured" and normalize_order(order_key) == "reverse" then
             paths = reverse_copy(paths)
         end
         local path = paths[1]
@@ -527,18 +603,18 @@ local function build_data_provider(cfg, dcfg)
         local n = tonumber(count) or 5
         if n < 1 then n = 1 end
         local source = source_key
-        if source ~= "currently_reading" and source ~= "to_be_read" then
+        if source ~= "custom_strip" and source ~= "currently_reading" and source ~= "to_be_read" then
             source = "recently_read"
         end
         local paths = collect_paths_for_source(source, n + 1)
 
-        if normalize_order(order_key) == "reverse" then
+        if source ~= "custom_strip" and normalize_order(order_key) == "reverse" then
             paths = reverse_copy(paths)
         end
 
         -- Keep strip distinct from featured only when that featured widget is visible.
         local featured_widget_id = featured_widget_for_source(source)
-        local should_dedupe_featured = is_widget_visible(featured_widget_id)
+        local should_dedupe_featured = source ~= "custom_strip" and is_widget_visible(featured_widget_id)
         if should_dedupe_featured and #paths > 0 then
             local featured_path = paths[1]
             if featured_path and featured_path ~= "" then

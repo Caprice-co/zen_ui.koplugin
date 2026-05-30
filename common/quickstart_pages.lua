@@ -52,7 +52,7 @@ local function loadQuickstartCovers(n)
 
     local rh_ok, ReadHistory = pcall(require, "readhistory")
     if rh_ok and ReadHistory and ReadHistory.hist then
-        for _, entry in ipairs(ReadHistory.hist) do
+        for _i, entry in ipairs(ReadHistory.hist) do
             if #covers >= n then break end
             try_add(entry.file)
         end
@@ -71,7 +71,7 @@ local function loadQuickstartCovers(n)
                 end
             end
             table.sort(file_list)
-            for _, path in ipairs(file_list) do
+            for _i, path in ipairs(file_list) do
                 if #covers >= n then break end
                 try_add(path)
             end
@@ -551,7 +551,7 @@ function M.build_install_pages(ctx)
             "screensaver_document_cover",
             "screensaver_stretch_limit_percentage",
         }
-        for _, k in ipairs(simple_keys) do
+        for _i, k in ipairs(simple_keys) do
             if preset[k] ~= nil then
                 G_reader_settings:saveSetting(k, preset[k])
             end
@@ -719,7 +719,7 @@ function M.build_install_pages(ctx)
                 if type(config.navbar.show_tabs) ~= "table" then config.navbar.show_tabs = {} end
                 local tabs = { "continue", "history", "favorites", "collections",
                                "authors", "series", "to_be_read", "search", "stats" }
-                for _, id in ipairs(tabs) do
+                for _i, id in ipairs(tabs) do
                     config.navbar.show_tabs[id] = sel[id] == true
                 end
                 save_and_apply("navbar")
@@ -768,7 +768,7 @@ function M.build_install_pages(ctx)
                 if preset then
                     apply_screensaver_preset(preset)
                     if type(config.sleep_screen) ~= "table" then
-                        config.sleep_screen = { presets = {}, active_preset = nil }
+                        config.sleep_screen = { active_preset = nil }
                     end
                     config.sleep_screen.active_preset = preset.name
                     plugin:saveConfig()
@@ -957,7 +957,7 @@ function M.build_install_pages(ctx)
         local context_menu_bb = buildContextMenuBB(slot_w, slot_h, covers[1])
         local zen_bb          = buildZenButtonBB(avail_w)
         local home_bb         = buildHomeIconBB(avail_w)
-        for _, c in ipairs(covers) do c.bb:free() end
+        for _i, c in ipairs(covers) do c.bb:free() end
         for _i, page in ipairs(pages) do
             if page.title == _("File Browser") and browser_bb then
                 page.image_bb, page.image = browser_bb, nil

@@ -1,3 +1,5 @@
+local dashboard_presets = require("common/dashboard_presets")
+
 local defaults = {
     _meta = {
         schema_version = 1,
@@ -226,7 +228,6 @@ local defaults = {
         night_value = 5,
     },
     sleep_screen = {
-        presets = {},           -- { { name=…, screensaver_type=…, … }, … }
         active_preset = nil,   -- name of currently active preset, or nil
     },
     stats_page = {
@@ -259,37 +260,7 @@ local defaults = {
             tags = {},
             to_be_read = {},
         },
-        dashboard_page = {
-            title = "Reading",
-            rows = {
-                max_rows = 5,
-                order = {
-                    "datetime",
-                    "featured_recent",
-                    "stats_triplet",
-                    "strip_tbr",
-                },
-                enabled = {
-                    datetime = true,
-                    featured_recent = true,
-                    stats_triplet = true,
-                    strip_tbr = true,
-                },
-            },
-            middle_stats_triplet = { "today_pages", "today_duration", "streak" },
-            goals = {
-                metric = "pages",
-                period = "daily",
-                daily_pages_target = 30,
-                weekly_pages_target = 210,
-                daily_time_target_min = 30,
-                weekly_time_target_min = 210,
-            },
-            quotes = {
-                show_author = true,
-                manual_index = 1,
-            },
-        },
+        dashboard_page = dashboard_presets.defaultDashboardPage(),
     },
     reader_page_browser = {
         layout = "grid",

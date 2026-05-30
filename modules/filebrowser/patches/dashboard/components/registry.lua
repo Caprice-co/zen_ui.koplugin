@@ -1,11 +1,11 @@
 local components = {
     require("modules/filebrowser/patches/dashboard/widgets/datetime"),
-    require("modules/filebrowser/patches/dashboard/widgets/featured_reading"),
+    require("modules/filebrowser/patches/dashboard/widgets/featured_custom"),
     require("modules/filebrowser/patches/dashboard/widgets/featured_tbr"),
     require("modules/filebrowser/patches/dashboard/widgets/featured_recent"),
     require("modules/filebrowser/patches/dashboard/widgets/stats_triplet"),
     require("modules/filebrowser/patches/dashboard/widgets/reading_goals"),
-    require("modules/filebrowser/patches/dashboard/widgets/strip_reading"),
+    require("modules/filebrowser/patches/dashboard/widgets/strip_custom"),
     require("modules/filebrowser/patches/dashboard/widgets/strip_tbr"),
     require("modules/filebrowser/patches/dashboard/widgets/strip_recent"),
     require("modules/filebrowser/patches/dashboard/widgets/quotes"),

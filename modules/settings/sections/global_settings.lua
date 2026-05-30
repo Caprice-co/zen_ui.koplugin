@@ -6,6 +6,7 @@ local _ = require("gettext")
 local UIManager = require("ui/uimanager")
 local Device = require("device")
 local ConfirmBox = require("ui/widget/confirmbox")
+local PresetStore = require("common/preset_store")
 local utils = require("modules/settings/zen_settings_utils")
 
 -- Disables the built-in autowarmth plugin if it's running, then prompts restart.
@@ -20,7 +21,7 @@ local function disable_autowarmth()
     local dir
     local mod = package.loaded["suntime"]
     if type(mod) == "table" then
-        for _, v in pairs(mod) do
+        for _k, v in pairs(mod) do
             if type(v) == "function" then
                 local info = debug.getinfo(v, "S")
                 local src = info and info.source
@@ -146,21 +147,18 @@ function M.build(ctx)
         end
     end
 
-    local function get_sleep_screen_presets()
+    local function ensure_sleep_screen_config()
         if type(config.sleep_screen) ~= "table" then
-            config.sleep_screen = { presets = {}, active_preset = nil }
+            config.sleep_screen = { active_preset = nil }
         end
-        if type(config.sleep_screen.presets) ~= "table" then
-            config.sleep_screen.presets = {}
-        end
-        return config.sleep_screen.presets
+        return config.sleep_screen
     end
 
     local function get_all_presets()
-        local user = get_sleep_screen_presets()
+        local user = PresetStore.list("screensaver")
         local all = {}
-        for _, p in ipairs(builtin_presets) do table.insert(all, p) end
-        for _, p in ipairs(user)            do table.insert(all, p) end
+        for _i, p in ipairs(builtin_presets) do table.insert(all, p) end
+        for _i, p in ipairs(user) do table.insert(all, p) end
         return all
     end
 
@@ -215,16 +213,8 @@ function M.build(ctx)
         end
     end
 
-    local function find_preset_by_name(name)
-        local user_presets = get_sleep_screen_presets()
-        for i, p in ipairs(user_presets) do
-            if p.name == name then return p, i end
-        end
-        return nil, nil
-    end
-
     local function build_preset_items()
-        local user_presets = get_sleep_screen_presets()
+        ensure_sleep_screen_config()
         local all = get_all_presets()
         local preset_items = {}
 
@@ -251,13 +241,8 @@ function M.build(ctx)
                                 if not name or name:match("^%s*$") then return end
                                 name = name:match("^%s*(.-)%s*$")
                                 UIManager:close(dlg)
-                                local _, idx = find_preset_by_name(name)
-                                if idx then
-                                    table.remove(user_presets, idx)
-                                end
                                 local state = capture_sleep_screen_state()
-                                state.name = name
-                                table.insert(user_presets, state)
+                                PresetStore.save("screensaver", name, state)
                                 config.sleep_screen.active_preset = name
                                 plugin:saveConfig()
                                 if touchmenu_instance then
@@ -295,10 +280,7 @@ function M.build(ctx)
                         text = _("Delete preset?") .. "\n\n" .. pname,
                         ok_text = _("Delete"),
                         ok_callback = function()
-                            local _, idx = find_preset_by_name(pname)
-                            if idx then
-                                table.remove(user_presets, idx)
-                            end
+                            PresetStore.delete("screensaver", pname)
                             if config.sleep_screen.active_preset == pname then
                                 config.sleep_screen.active_preset = nil
                             end
@@ -679,7 +661,7 @@ function M.build(ctx)
                 local menu_items = {}
                 ui.autosuspend:addToMainMenu(menu_items)
                 local suspend_sub = {}
-                for _, key in ipairs({ "autosuspend", "autoshutdown", "autostandby" }) do
+                for _i, key in ipairs({ "autosuspend", "autoshutdown", "autostandby" }) do
                     if menu_items[key] then table.insert(suspend_sub, menu_items[key]) end
                 end
                 if #suspend_sub > 0 then

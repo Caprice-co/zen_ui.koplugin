@@ -73,14 +73,15 @@ function M.build(ctx, source_key)
     local cover_slot_h = math.max(1, height - cover_v_pad * 2)
     local min_text_w = math.max(40, math.floor(width * 0.36))
     local max_cover_w = math.max(1, width - gap - min_text_w)
-    local cover_slot_w = math.max(1, math.min(math.floor(width * 0.46), math.floor(cover_slot_h * 0.76), max_cover_w))
-    gap = math.min(gap, math.max(0, width - cover_slot_w - 1))
-    local cover_widget = cover_common.make_cover_widget(
+    local cover_max_w = math.max(1, math.min(math.floor(width * 0.46), math.floor(cover_slot_h * 0.76), max_cover_w))
+    local cover_widget, cover_w = cover_common.make_cover_widget(
         book,
-        cover_slot_w,
+        cover_max_w,
         cover_slot_h,
         { border = 1, background = Blitbuffer.COLOR_LIGHT_GRAY }
     )
+    local cover_slot_w = cover_w or cover_max_w
+    gap = math.min(gap, math.max(0, width - cover_slot_w - 1))
 
     local text_w = math.max(1, width - (cover_slot_w + gap))
     local pct = math.floor((book.percent or 0) * 100 + 0.5)

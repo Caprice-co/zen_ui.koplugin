@@ -1,6 +1,8 @@
 local _ = require("gettext")
 local UIManager = require("ui/uimanager")
 
+local DashboardPresets = require("common/dashboard_presets")
+local PresetStore = require("common/preset_store")
 local Registry = require("modules/filebrowser/patches/dashboard/components/registry")
 
 local M = {}
@@ -10,12 +12,33 @@ local DEFAULT_ORDER = {
     "featured_recent",
     "stats_triplet",
     "strip_tbr",
+    "featured_custom",
+    "featured_tbr",
+    "strip_recent",
+    "reading_goals",
+    "strip_custom",
+    "quotes",
+}
+
+local DEFAULT_ENABLED = {
+    datetime = true,
+    featured_recent = true,
+    quotes = true,
+    strip_recent = true,
 }
 
 local function copy_default_order()
     local out = {}
     for _i, id in ipairs(DEFAULT_ORDER) do
         out[#out + 1] = id
+    end
+    return out
+end
+
+local function copy_default_enabled()
+    local out = {}
+    for key, value in pairs(DEFAULT_ENABLED) do
+        out[key] = value
     end
     return out
 end
@@ -54,11 +77,45 @@ local function ensure_strip_cfg(dcfg, module_id)
     return mcfg
 end
 
+local function migrate_custom_widget_ids(dcfg)
+    if type(dcfg.rows) == "table" and type(dcfg.rows.order) == "table" then
+        for _i, id in ipairs(dcfg.rows.order) do
+            if id == "featured_reading" then
+                dcfg.rows.order[_i] = "featured_custom"
+            elseif id == "strip_reading" then
+                dcfg.rows.order[_i] = "strip_custom"
+            end
+        end
+    end
+    if type(dcfg.rows) == "table" and type(dcfg.rows.enabled) == "table" then
+        if dcfg.rows.enabled.featured_custom == nil then
+            dcfg.rows.enabled.featured_custom = dcfg.rows.enabled.featured_reading
+        end
+        if dcfg.rows.enabled.strip_custom == nil then
+            dcfg.rows.enabled.strip_custom = dcfg.rows.enabled.strip_reading
+        end
+        dcfg.rows.enabled.featured_reading = nil
+        dcfg.rows.enabled.strip_reading = nil
+    end
+    if type(dcfg.modules) == "table" then
+        if type(dcfg.modules.featured_custom) ~= "table" and type(dcfg.modules.featured_reading) == "table" then
+            dcfg.modules.featured_custom = dcfg.modules.featured_reading
+        end
+        if type(dcfg.modules.strip_custom) ~= "table" and type(dcfg.modules.strip_reading) == "table" then
+            dcfg.modules.strip_custom = dcfg.modules.strip_reading
+        end
+        dcfg.modules.featured_reading = nil
+        dcfg.modules.strip_reading = nil
+    end
+end
+
 local function ensure_dashboard_widget_cfg(dcfg)
-    ensure_featured_cfg(dcfg, "featured_reading")
+    local featured_custom = ensure_featured_cfg(dcfg, "featured_custom")
+    if type(featured_custom.path) ~= "string" then featured_custom.path = nil end
     ensure_featured_cfg(dcfg, "featured_tbr")
     ensure_featured_cfg(dcfg, "featured_recent")
-    ensure_strip_cfg(dcfg, "strip_reading")
+    local strip_custom = ensure_strip_cfg(dcfg, "strip_custom")
+    if type(strip_custom.paths) ~= "table" then strip_custom.paths = {} end
     ensure_strip_cfg(dcfg, "strip_tbr")
     ensure_strip_cfg(dcfg, "strip_recent")
 end
@@ -67,6 +124,8 @@ local function ensure_cfg(config)
     if type(config.group_view) ~= "table" then config.group_view = {} end
     if type(config.group_view.dashboard_page) ~= "table" then config.group_view.dashboard_page = {} end
     local dcfg = config.group_view.dashboard_page
+    DashboardPresets.ensurePresetState(dcfg)
+    migrate_custom_widget_ids(dcfg)
 
     if type(dcfg.rows) ~= "table" then dcfg.rows = {} end
     if type(dcfg.rows.order) ~= "table" then dcfg.rows.order = {} end
@@ -95,10 +154,7 @@ local function ensure_cfg(config)
         end
     end
     if not had_enabled then
-        normalized_enabled = {}
-        for _i, id in ipairs(DEFAULT_ORDER) do
-            normalized_enabled[id] = true
-        end
+        normalized_enabled = copy_default_enabled()
     end
     for _i, comp in ipairs(Registry.list()) do
         if normalized_enabled[comp.id] == nil then
@@ -252,8 +308,39 @@ function M.build(ctx)
         return items
     end
 
-    local function build_featured_widget_items(module_id)
-        local mcfg = ensure_featured_cfg(dcfg, module_id)
+    local function path_label(path)
+        if type(path) ~= "string" or path == "" then
+            return _("None")
+        end
+        local ok_bim, BookInfoManager = pcall(require, "bookinfomanager")
+        if ok_bim and BookInfoManager then
+            local bi = BookInfoManager:getBookInfo(path, false)
+            if bi and type(bi.title) == "string" and bi.title ~= "" then
+                return bi.title
+            end
+        end
+        return (path:match("([^/]+)$") or path):gsub("%.[^%.]+$", "")
+    end
+
+    local function choose_book(callback)
+        local PathChooser = require("ui/widget/pathchooser")
+        local paths = require("common/paths")
+        local start_path = paths.getHomeDir() or G_reader_settings:readSetting("lastdir") or "/"
+        UIManager:show(PathChooser:new{
+            select_directory = false,
+            select_file = true,
+            show_files = true,
+            path = start_path,
+            onConfirm = function(file_path)
+                local lfs = require("libs/libkoreader-lfs")
+                if type(file_path) == "string" and lfs.attributes(file_path, "mode") == "file" then
+                    callback(file_path)
+                end
+            end,
+        })
+    end
+
+    local function build_featured_custom_items(mcfg)
         return {
             {
                 text = _("Show widget title"),
@@ -261,7 +348,127 @@ function M.build(ctx)
                     return mcfg.show_module_title == true
                 end,
                 callback = function()
-                    mcfg.show_module_title = not (mcfg.show_module_title == true)
+                    mcfg.show_module_title = mcfg.show_module_title ~= true
+                    save_dashboard("reinit")
+                end,
+            },
+            {
+                text_func = function()
+                    return _("Book: ") .. path_label(mcfg.path)
+                end,
+                keep_menu_open = true,
+                callback = function(touchmenu_instance)
+                    choose_book(function(path)
+                        mcfg.path = path
+                        save_dashboard("reinit")
+                        if touchmenu_instance then touchmenu_instance:updateItems() end
+                    end)
+                end,
+            },
+            {
+                text = _("Show description"),
+                checked_func = function()
+                    return mcfg.show_description ~= false
+                end,
+                callback = function()
+                    mcfg.show_description = mcfg.show_description == false
+                    save_dashboard("reinit")
+                end,
+            },
+            {
+                text = _("Clear book"),
+                enabled_func = function()
+                    return type(mcfg.path) == "string" and mcfg.path ~= ""
+                end,
+                callback = function()
+                    mcfg.path = nil
+                    save_dashboard("reinit")
+                end,
+            },
+        }
+    end
+
+    local function build_strip_custom_items(mcfg)
+        if type(mcfg.paths) ~= "table" then mcfg.paths = {} end
+        local items = {
+            {
+                text = _("Show widget title"),
+                checked_func = function()
+                    return mcfg.show_module_title == true
+                end,
+                callback = function()
+                    mcfg.show_module_title = mcfg.show_module_title ~= true
+                    save_dashboard("reinit")
+                end,
+            },
+            {
+                text = _("Add book"),
+                keep_menu_open = true,
+                enabled_func = function()
+                    return #mcfg.paths < 5
+                end,
+                callback = function(touchmenu_instance)
+                    choose_book(function(path)
+                        for _i, existing in ipairs(mcfg.paths) do
+                            if existing == path then return end
+                        end
+                        mcfg.paths[#mcfg.paths + 1] = path
+                        save_dashboard("reinit")
+                        if touchmenu_instance then
+                            touchmenu_instance.item_table = build_strip_custom_items(mcfg)
+                            touchmenu_instance:updateItems()
+                        end
+                    end)
+                end,
+            },
+            {
+                text = _("Show strip item titles"),
+                checked_func = function()
+                    return mcfg.show_strip_titles == true
+                end,
+                callback = function()
+                    mcfg.show_strip_titles = mcfg.show_strip_titles ~= true
+                    save_dashboard("reinit")
+                end,
+            },
+        }
+
+        for i, path in ipairs(mcfg.paths) do
+            items[#items + 1] = {
+                text = _("Remove: ") .. path_label(path),
+                callback = function()
+                    table.remove(mcfg.paths, i)
+                    save_dashboard("reinit")
+                end,
+            }
+        end
+
+        items[#items + 1] = {
+            text = _("Clear books"),
+            enabled_func = function()
+                return #mcfg.paths > 0
+            end,
+            callback = function()
+                mcfg.paths = {}
+                save_dashboard("reinit")
+            end,
+        }
+        return items
+    end
+
+    local function build_featured_widget_items(module_id)
+        local mcfg = ensure_featured_cfg(dcfg, module_id)
+        if module_id == "featured_custom" then
+            return build_featured_custom_items(mcfg)
+        end
+        return {
+            {
+                text = _("Show widget title"),
+                checked_func = function()
+                    return mcfg.show_module_title == true
+                end,
+                callback = function()
+                    mcfg.show_module_title = mcfg.show_module_title ~= true
                     save_dashboard("reinit")
                 end,
             },
@@ -284,6 +491,9 @@ function M.build(ctx)
 
     local function build_strip_widget_items(module_id)
         local mcfg = ensure_strip_cfg(dcfg, module_id)
+        if module_id == "strip_custom" then
+            return build_strip_custom_items(mcfg)
+        end
         return {
             {
                 text = _("Show widget title"),
@@ -291,7 +501,7 @@ function M.build(ctx)
                     return mcfg.show_module_title == true
                 end,
                 callback = function()
-                    mcfg.show_module_title = not (mcfg.show_module_title == true)
+                    mcfg.show_module_title = mcfg.show_module_title ~= true
                     save_dashboard("reinit")
                 end,
             },
@@ -324,7 +534,7 @@ function M.build(ctx)
                     return mcfg.show_strip_titles == true
                 end,
                 callback = function()
-                    mcfg.show_strip_titles = not (mcfg.show_strip_titles == true)
+                    mcfg.show_strip_titles = mcfg.show_strip_titles ~= true
                     save_dashboard("reinit")
                 end,
             },
@@ -381,6 +591,107 @@ function M.build(ctx)
         })
     end
 
+    local function all_dashboard_presets()
+        local all = DashboardPresets.getBuiltinPresets()
+        local presets = PresetStore.list("dashboard")
+        for _i, preset in ipairs(presets) do
+            all[#all + 1] = preset
+        end
+        return all
+    end
+
+    local function apply_dashboard_preset(preset, touchmenu_instance)
+        local preset_name = preset and preset.name
+        DashboardPresets.applyDashboardPagePreset(dcfg, preset)
+        dcfg.active_preset = preset_name
+        ensure_cfg(config)
+        save_dashboard("reinit")
+        if touchmenu_instance then touchmenu_instance:updateItems() end
+    end
+
+    local function build_preset_items()
+        local all = all_dashboard_presets()
+        local items = {}
+
+        items[#items + 1] = {
+            text = _("Save current dashboard as preset"),
+            keep_menu_open = true,
+            callback = function(touchmenu_instance)
+                local InputDialog = require("ui/widget/inputdialog")
+                local dlg
+                dlg = InputDialog:new{
+                    title = _("Preset name"),
+                    input = "",
+                    input_hint = _("Dashboard preset"),
+                    buttons = {{
+                        {
+                            text = _("Cancel"),
+                            id = "close",
+                            callback = function() UIManager:close(dlg) end,
+                        },
+                        {
+                            text = _("Save"),
+                            is_enter_default = true,
+                            callback = function()
+                                local name = dlg:getInputText()
+                                if not name or name:match("^%s*$") then return end
+                                name = name:match("^%s*(.-)%s*$")
+                                UIManager:close(dlg)
+                                local state = DashboardPresets.captureDashboardPage(dcfg)
+                                state.title = name
+                                PresetStore.save("dashboard", name, state)
+                                dcfg.active_preset = name
+                                save_dashboard("reinit")
+                                if touchmenu_instance then
+                                    touchmenu_instance.item_table = build_preset_items()
+                                    touchmenu_instance:updateItems()
+                                end
+                            end,
+                        },
+                    }},
+                }
+                UIManager:show(dlg)
+                dlg:onShowKeyboard()
+            end,
+            separator = #all > 0,
+        }
+
+        for i, preset in ipairs(all) do
+            local preset_name = preset.name
+            local is_builtin = preset.builtin == true
+            items[#items + 1] = {
+                text_func = function()
+                    local prefix = dcfg.active_preset == preset_name and "* " or ""
+                    return prefix .. (preset_name or _("Unnamed preset"))
+                end,
+                callback = function(touchmenu_instance)
+                    apply_dashboard_preset(preset, touchmenu_instance)
+                end,
+                hold_callback = not is_builtin and function(touchmenu_instance)
+                    local ConfirmBox = require("ui/widget/confirmbox")
+                    UIManager:show(ConfirmBox:new{
+                        text = _("Delete preset?") .. "\n\n" .. (preset_name or ""),
+                        ok_text = _("Delete"),
+                        ok_callback = function()
+                            PresetStore.delete("dashboard", preset_name)
+                            if dcfg.active_preset == preset_name then
+                                dcfg.active_preset = nil
+                            end
+                            save_dashboard("reinit")
+                            if touchmenu_instance then
+                                touchmenu_instance.item_table = build_preset_items()
+                                touchmenu_instance:updateItems()
+                            end
+                        end,
+                    })
+                end or nil,
+                separator = i == #all or (is_builtin and all[i + 1] and all[i + 1].builtin ~= true),
+            }
+        end
+
+        return items
+    end
+
     local goals_items = {
         (function()
             local goals_cfg = ensure_module_cfg(dcfg, "reading_goals")
@@ -390,7 +701,7 @@ function M.build(ctx)
                     return goals_cfg.show_module_title == true
                 end,
                 callback = function()
-                    goals_cfg.show_module_title = not (goals_cfg.show_module_title == true)
+                    goals_cfg.show_module_title = goals_cfg.show_module_title ~= true
                     save_dashboard("reinit")
                 end,
             }
@@ -517,7 +828,7 @@ function M.build(ctx)
                 return stats_cfg.show_module_title == true
             end,
             callback = function()
-                stats_cfg.show_module_title = not (stats_cfg.show_module_title == true)
+                stats_cfg.show_module_title = stats_cfg.show_module_title ~= true
                 save_dashboard("reinit")
             end,
         },
@@ -562,14 +873,18 @@ function M.build(ctx)
                 callback = arrange_widgets,
             },
             {
+                text = _("Presets"),
+                sub_item_table_func = build_preset_items,
+            },
+            {
                 text = _("Settings"),
                 sub_item_table = {
                     {
                         text = _("Featured widgets"),
                         sub_item_table = {
                             {
-                                text = _("Reading featured widget"),
-                                sub_item_table = build_featured_widget_items("featured_reading"),
+                                text = _("Custom featured widget"),
+                                sub_item_table = build_featured_widget_items("featured_custom"),
                             },
                             {
                                 text = _("To Be Read featured widget"),
@@ -585,8 +900,8 @@ function M.build(ctx)
                         text = _("Strip widgets"),
                         sub_item_table = {
                             {
-                                text = _("Reading strip widget"),
-                                sub_item_table = build_strip_widget_items("strip_reading"),
+                                text = _("Custom strip widget"),
+                                sub_item_table = build_strip_widget_items("strip_custom"),
                             },
                             {
                                 text = _("To Be Read strip widget"),
@@ -617,7 +932,7 @@ function M.build(ctx)
                                         return quotes_cfg.show_module_title == true
                                     end,
                                     callback = function()
-                                        quotes_cfg.show_module_title = not (quotes_cfg.show_module_title == true)
+                                        quotes_cfg.show_module_title = quotes_cfg.show_module_title ~= true
                                         save_dashboard("reinit")
                                     end,
                                 }

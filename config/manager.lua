@@ -1,7 +1,8 @@
 local defaults = require("config/defaults")
+local PresetStore = require("common/preset_store")
 local utils = require("common/utils")
 
-local LEGACY_KEY = "zen_ui_config"  -- G_reader_settings key; kept only for one-time migration
+local LEGACY_KEY = "zen_ui_config"  -- legacy G_reader_settings key; cleanup only
 
 local _zen_settings_file = nil  -- cached LuaSettings instance
 local _current_config    = nil  -- in-memory cache for M.get()
@@ -9,8 +10,7 @@ local _current_config    = nil  -- in-memory cache for M.get()
 local M = {}
 
 local function get_settings_path()
-    local DataStorage = require("datastorage")
-    return DataStorage:getSettingsDir() .. "/zen_ui.lua"
+    return PresetStore.rootDir() .. "/config.lua"
 end
 
 local function open_zen_file()
@@ -21,18 +21,18 @@ local function open_zen_file()
     return _zen_settings_file
 end
 
--- Returns (stored_table, is_from_legacy).
--- Reads from zen_ui.lua first; falls back to G_reader_settings["zen_ui_config"]
--- on the first run after migration.
+-- Returns the stored config table and whether it came from settings.reader.lua.
 local function load_raw_config()
     local f = open_zen_file()
-    -- f.data IS the config (flat, no wrapper key)
-    if next(f.data) ~= nil then
+    if type(f.data) == "table" and next(f.data) ~= nil then
         return f.data, false
     end
     local g = rawget(_G, "G_reader_settings")
     local legacy = g and g:readSetting(LEGACY_KEY)
-    return legacy or {}, legacy ~= nil
+    if type(legacy) == "table" then
+        return legacy, true
+    end
+    return {}, false
 end
 
 local function merged_with_defaults(stored)
@@ -514,7 +514,7 @@ function M.settingsPath()
 end
 
 function M.load()
-    local stored, is_from_legacy = load_raw_config()
+    local stored, migrated_file_config = load_raw_config()
 
     -- Existing install that predates the quickstart feature: stored config is
     -- non-empty but lacks quickstart_shown_for_version. deepmerge would fill
@@ -536,15 +536,14 @@ function M.load()
     cfg, migrated_updater = migrate_legacy_updater_keys(cfg)
     cfg, migrated_fbc     = migrate_folder_cover_keys(cfg)
     cfg, migrated_bim     = migrate_bim_folder_cover_keys(cfg)
-    if migrated_group or migrated_updater or migrated_fbc or migrated_bim or migrated_qs or is_from_legacy then
+    if migrated_group or migrated_updater or migrated_fbc or migrated_bim or migrated_qs or migrated_file_config then
         M.save(cfg)
     end
-    if is_from_legacy then
+    if migrated_file_config then
         local g = rawget(_G, "G_reader_settings")
-        if g then
-            -- TODO: Remove at launch
-            -- g:delSetting(LEGACY_KEY)
-            -- pcall(g.flush, g)
+        if g and type(g.delSetting) == "function" then
+            pcall(g.delSetting, g, LEGACY_KEY)
+            pcall(g.flush, g)
         end
     end
     _current_config = cfg

@@ -103,14 +103,14 @@ local function is_enabled(config, path)
         return true
     end
     local node = config
-    for _, key in ipairs(path) do
+    for _i, key in ipairs(path) do
         node = node and node[key]
     end
     return node == true
 end
 
 function ZenUI:_initModules()
-    for _, def in ipairs(registry) do
+    for _i, def in ipairs(registry) do
         if is_enabled(self.config, def.setting) then
             local ok, module = pcall(require, def.file)
             if ok and module and module.init then
@@ -147,12 +147,7 @@ function ZenUI:init()
 
     -- First-run: backup user's original screensaver settings as a preset.
     if not self.config._meta.screensaver_backup_created then
-        if type(self.config.sleep_screen) ~= "table" then
-            self.config.sleep_screen = { presets = {}, active_preset = nil }
-        end
-        if type(self.config.sleep_screen.presets) ~= "table" then
-            self.config.sleep_screen.presets = {}
-        end
+        local PresetStore = require("common/preset_store")
         local backup = {
             name = "Backup of Original",
             screensaver_type = G_reader_settings:readSetting("screensaver_type"),
@@ -163,7 +158,7 @@ function ZenUI:init()
             screensaver_stretch_images = G_reader_settings:isTrue("screensaver_stretch_images"),
             screensaver_stretch_limit_percentage = G_reader_settings:readSetting("screensaver_stretch_limit_percentage"),
         }
-        table.insert(self.config.sleep_screen.presets, 1, backup)
+        PresetStore.save("screensaver", backup.name, backup)
         self.config._meta.screensaver_backup_created = true
         self:saveConfig()
     end
@@ -394,7 +389,7 @@ function ZenUI:init()
     -- Patches setUpdateItemTable once per class so it persists across menu rebuilds.
     local function find_quicksettings_pos(tab_table)
         for i, tab in ipairs(tab_table) do
-            for _, field in ipairs({ "id", "name", "icon" }) do
+            for _i, field in ipairs({ "id", "name", "icon" }) do
                 local v = tab[field]
                 if type(v) == "string" then
                     local norm = v:lower():gsub("[%s_%-]+", "")
@@ -550,8 +545,10 @@ function ZenUI:deletePluginSettings()
     zen_updater.cancel_wakeup_check()
     zen_updater._on_update_found = nil
 
-    -- Delete the dedicated settings file
-    pcall(os.remove, ConfigManager.settingsPath())
+    -- Delete the dedicated settings folder.
+    pcall(function()
+        require("common/preset_store").removeAll()
+    end)
 
     -- Also clean up any legacy G_reader_settings key left from before the
     -- file-based migration completed (e.g., plugin disabled mid-boot).
