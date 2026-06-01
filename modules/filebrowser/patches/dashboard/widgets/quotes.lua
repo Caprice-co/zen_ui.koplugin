@@ -44,7 +44,7 @@ end
 return {
     id = "quotes",
     label = "Quotes widget",
-    size = { preferred = 125, min = 90, max = 180 },
+    size = { preferred = 145, min = 90, max = 210 },
     build = function(ctx)
         local width = ctx.width
         local height = ctx.height
@@ -89,7 +89,7 @@ return {
         if author_widget then
             content_h = content_h + author_gap + (author_size.h or 0)
         end
-        local content_top = math.max(0, math.floor((height - content_h) * 0.58))
+        local content_top = math.max(0, math.floor((height - content_h) * 0.5))
         local content = {
             dimen = Geom:new{ w = width, h = height },
             getSize = function(self)

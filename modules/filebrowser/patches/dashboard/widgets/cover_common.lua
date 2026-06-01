@@ -5,6 +5,7 @@ local CenterContainer = require("ui/widget/container/centercontainer")
 local FrameContainer = require("ui/widget/container/framecontainer")
 local ImageWidget = require("ui/widget/imagewidget")
 local Widget = require("ui/widget/widget")
+local CoverUtils = require("common/cover_utils")
 
 local M = {}
 
@@ -139,6 +140,17 @@ function M.make_cover_widget(book, max_w, max_h, opts)
         if scaled then
             child = ImageWidget:new{
                 image = scaled,
+                image_disposable = true,
+                width = target_w,
+                height = target_h,
+                scale_factor = 1,
+            }
+        end
+    elseif book and type(book.path) == "string" and book.path ~= "" then
+        local fake_cover = CoverUtils.genCover(book.path, target_w, target_h)
+        if fake_cover then
+            child = ImageWidget:new{
+                image = fake_cover,
                 image_disposable = true,
                 width = target_w,
                 height = target_h,

@@ -25,7 +25,7 @@ end
 return {
     id = "datetime",
     label = "Date/time widget",
-    size = { preferred = 145, min = 95, max = 220 },
+    size = { preferred = 125, min = 90, max = 225 },
     build = function(ctx)
         local width = ctx.width
         local height = ctx.height

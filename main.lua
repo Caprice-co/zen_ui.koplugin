@@ -149,7 +149,7 @@ function ZenUI:init()
     if not self.config._meta.screensaver_backup_created then
         local PresetStore = require("common/preset_store")
         local backup = {
-            name = "Backup of Original",
+            name = "backup",
             screensaver_type = G_reader_settings:readSetting("screensaver_type"),
             screensaver_message = G_reader_settings:readSetting("screensaver_message"),
             screensaver_show_message = G_reader_settings:isTrue("screensaver_show_message"),

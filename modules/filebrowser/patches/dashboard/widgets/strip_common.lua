@@ -4,7 +4,7 @@ local HorizontalGroup = require("ui/widget/horizontalgroup")
 local HorizontalSpan = require("ui/widget/horizontalspan")
 local FrameContainer = require("ui/widget/container/framecontainer")
 local CenterContainer = require("ui/widget/container/centercontainer")
-local LeftContainer = require("ui/widget/container/leftcontainer")
+local TopContainer = require("ui/widget/container/topcontainer")
 local TextWidget = require("ui/widget/textwidget")
 local TextBoxWidget = require("ui/widget/textboxwidget")
 local InputContainer = require("ui/widget/container/inputcontainer")
@@ -16,6 +16,7 @@ local Font = require("ui/font")
 local Device = require("device")
 
 local M = {}
+M.SIZE = { preferred = 165, min = 150, max = 460 }
 
 function M.build_strip(ctx, source_key)
     local width = ctx.width
@@ -44,23 +45,21 @@ function M.build_strip(ctx, source_key)
         }
     end
 
-    local cover_v_pad = math.max(2, math.floor(height * 0.06))
-    local slot_h = math.max(1, height - cover_v_pad * 2)
-    local title_gap = show_strip_titles and math.max(1, math.floor(slot_h * 0.04)) or 0
-    local title_h = show_strip_titles and math.max(14, math.floor(slot_h * 0.24)) or 0
-    local cover_h = slot_h - title_h - title_gap
-    if cover_h < 28 then
-        cover_h = slot_h
-        title_h = 0
-        title_gap = 0
-    end
-
-    local strip_title_face = Font:getFace("smallinfofont", Screen:scaleBySize(10))
-
     local min_gap = math.max(4, math.min(10, math.floor(width * 0.012)))
     local max_cover_w = math.max(24, math.floor((width - min_gap * (#books - 1)) / #books))
+    local row_top_pad = math.max(2, Screen:scaleBySize(4))
+    local strip_title_face = Font:getFace("smallinfofont", Screen:scaleBySize(10))
+    local title_h = show_strip_titles and math.max(14, Screen:scaleBySize(12)) or 0
+    local title_gap = show_strip_titles and math.max(1, Screen:scaleBySize(2)) or 0
+    local max_cover_h = math.max(28, height - row_top_pad * 2 - title_h - title_gap)
+    local cover_h = math.min(max_cover_h, math.floor(max_cover_w * 1.62))
+    if cover_h < 28 then
+        cover_h = max_cover_h
+    end
+
     local items = {}
     local covers_w = 0
+    local row_h = 0
     for _i, book in ipairs(books) do
         local cover, cover_w = cover_common.make_cover_widget(
             book,
@@ -69,11 +68,17 @@ function M.build_strip(ctx, source_key)
             { border = 1, background = Blitbuffer.COLOR_LIGHT_GRAY }
         )
         cover_w = cover_w or max_cover_w
+        local cover_size = cover.getSize and cover:getSize() or nil
+        local actual_cover_h = (cover_size and cover_size.h) or cover_h
+        local item_h = show_strip_titles and (actual_cover_h + title_gap + title_h) or actual_cover_h
+        if item_h > row_h then row_h = item_h end
         covers_w = covers_w + cover_w
         items[#items + 1] = {
             book = book,
             cover = cover,
             w = cover_w,
+            cover_h = actual_cover_h,
+            h = item_h,
         }
     end
 
@@ -92,7 +97,7 @@ function M.build_strip(ctx, source_key)
         local item_w = item.w
 
         local tap = InputContainer:new{
-            dimen = Geom:new{ w = item_w, h = slot_h },
+            dimen = Geom:new{ w = item_w, h = item.h },
             ges_events = {
                 TapCover = {
                     GestureRange:new{ ges = "tap", range = Geom:new{
@@ -118,7 +123,7 @@ function M.build_strip(ctx, source_key)
             tap[1] = VerticalGroup:new{
                 align = "center",
                 CenterContainer:new{
-                    dimen = Geom:new{ w = item_w, h = cover_h },
+                    dimen = Geom:new{ w = item_w, h = item.cover_h },
                     item.cover,
                 },
                 VerticalSpan:new{ width = title_gap },
@@ -133,7 +138,7 @@ function M.build_strip(ctx, source_key)
                 },
             }
         else
-            tap[1] = CenterContainer:new{ dimen = Geom:new{ w = item_w, h = slot_h }, item.cover }
+            tap[1] = CenterContainer:new{ dimen = Geom:new{ w = item_w, h = item.cover_h }, item.cover }
         end
 
         table.insert(row, tap)
@@ -153,10 +158,11 @@ function M.build_strip(ctx, source_key)
         padding = 0,
         bordersize = 0,
         background = Blitbuffer.COLOR_WHITE,
-        VerticalGroup:new{
-            LeftContainer:new{
-                dimen = Geom:new{ w = width, h = height },
-                CenterContainer:new{ dimen = Geom:new{ w = width, h = height }, row },
+        TopContainer:new{
+            dimen = Geom:new{ w = width, h = height },
+            VerticalGroup:new{
+                VerticalSpan:new{ width = row_top_pad },
+                CenterContainer:new{ dimen = Geom:new{ w = width, h = row_h }, row },
             },
         },
     }

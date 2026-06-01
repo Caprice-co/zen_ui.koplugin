@@ -20,6 +20,7 @@ local util = require("util")
 local cover_common = require("modules/filebrowser/patches/dashboard/widgets/cover_common")
 
 local M = {}
+M.SIZE = { preferred = 288, min = 188, max = 430 }
 
 local function clamp(v, min_v, max_v)
     if v < min_v then return min_v end

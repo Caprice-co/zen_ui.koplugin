@@ -74,7 +74,7 @@ local function apply_navbar()
         tab_order = { "page_left", "books", "manga", "news", "continue", "authors", "series", "tags", "to_be_read", "dashboard", "history", "favorites", "collections", "stats", "search", "calibre_search", "exit", "page_right", "menu" },
         show_labels = true,
         books_label = "",  -- empty = auto-translated "Library"
-        dashboard_label = "Reading",
+        dashboard_label = "Home",
         default_tab = "books",
         manga_action = "rakuyomi",
         manga_folder = "",
@@ -142,7 +142,7 @@ local function apply_navbar()
     end
 
     local function getDashboardLabel()
-        return config.dashboard_label ~= "" and config.dashboard_label or _("Reading")
+        return config.dashboard_label ~= "" and config.dashboard_label or _("Home")
     end
 
     local tabs = {
@@ -204,7 +204,7 @@ local function apply_navbar()
         {
             id = "dashboard",
             label = getDashboardLabel(),
-            icon = "tab_stats",
+            icon = "home",
         },
         {
             id = "search",

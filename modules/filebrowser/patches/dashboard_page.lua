@@ -51,11 +51,11 @@ end
 
 local MODULE_TITLES = {
     datetime = "Today",
-    featured_custom = "Custom",
+    featured_custom = "Featured Book",
     featured_tbr = "To be Read",
     featured_recent = "Recently read",
     reading_goals = "Reading goals",
-    strip_custom = "Custom",
+    strip_custom = "Featured Books",
     strip_tbr = "To be Read",
     strip_recent = "Recently read",
     stats_triplet = "Reading stats",
@@ -762,46 +762,44 @@ local function compute_row_heights(rows, body_h)
         total = total - 1
     end
 
-    local function grow_matching(match_fn, allow_over_max)
+    while total < body_h do
         local grew = false
         for _i, sp in ipairs(specs) do
             if total >= body_h then break end
-            if match_fn(sp) and (allow_over_max or sp.h < sp.max) then
+            if sp.h < sp.max then
                 sp.h = sp.h + 1
                 total = total + 1
                 grew = true
             end
         end
-        return grew
-    end
-
-    local function grow_over_max(sp)
-        if not sp then return false end
-        sp.h = sp.h + 1
-        total = total + 1
-        return true
-    end
-
-    while total < body_h do
-        local grew = grow_matching(function(sp) return sp.is_featured end, false)
-        if total >= body_h then break end
-        grew = grow_matching(function(sp) return sp.is_datetime end, false) or grew
-        if total >= body_h then break end
-        grew = grow_matching(function(sp)
-            return not sp.is_strip and not sp.is_featured and not sp.is_datetime
-        end, false) or grew
-        if total >= body_h then break end
-        grew = grow_matching(function(sp) return sp.is_strip end, false) or grew
-        if not grew then
-            -- Once all maxes are reached, prefer extra cover space over dead space.
-            if not grow_matching(function(sp) return sp.is_strip end, true)
-                    and not grow_over_max(specs[#specs]) then
-                break
-            end
-        end
+        if not grew then break end
     end
 
     return specs
+end
+
+local function grow_row_heights_evenly(row_heights, extra_px)
+    local remaining = tonumber(extra_px) or 0
+    local grown = 0
+    if remaining <= 0 then
+        return grown
+    end
+    while remaining > 0 do
+        local grew = false
+        for _i, row in ipairs(row_heights) do
+            if remaining <= 0 then break end
+            local max_h = tonumber(row.max) or tonumber(row.h) or 0
+            local cur_h = tonumber(row.h) or 0
+            if cur_h < max_h then
+                row.h = cur_h + 1
+                remaining = remaining - 1
+                grown = grown + 1
+                grew = true
+            end
+        end
+        if not grew then break end
+    end
+    return grown
 end
 
 local function build_dashboard_content(menu, cfg, dcfg, rows, data_provider)
@@ -840,17 +838,36 @@ local function build_dashboard_content(menu, cfg, dcfg, rows, data_provider)
     local layout_h = math.max(1, body_h - page_pad * 2)
     local row_gap = 0
     if #rows > 1 then
-        local default_gap = math.max(2, Screen:scaleBySize(4))
-        local max_gap_total = math.max(#rows - 1, math.floor(layout_h * 0.12))
-        row_gap = math.floor(max_gap_total / (#rows - 1))
-        if row_gap < 1 then row_gap = 1 end
-        if row_gap > default_gap then row_gap = default_gap end
+        row_gap = math.max(1, math.floor(Screen:scaleBySize(3)))
     end
+    local max_row_gap = #rows > 1 and math.max(row_gap, math.floor(Screen:scaleBySize(6))) or 0
     local gaps_h = row_gap * math.max(0, #rows - 1)
     local rows_h_budget = layout_h - gaps_h
     if rows_h_budget < #rows then rows_h_budget = math.max(1, layout_h) end
 
     local row_heights = compute_row_heights(rows, rows_h_budget)
+    local rows_h_used = 0
+    for _i, row in ipairs(row_heights) do
+        rows_h_used = rows_h_used + (row.h or 0)
+    end
+    local extra_spacing_h = rows_h_budget - rows_h_used
+    if extra_spacing_h > 0 then
+        local grown = grow_row_heights_evenly(row_heights, extra_spacing_h)
+        extra_spacing_h = extra_spacing_h - grown
+    end
+    if extra_spacing_h > 0 and #rows > 1 and row_gap < max_row_gap then
+        local gap_room = max_row_gap - row_gap
+        local add_each = math.floor(extra_spacing_h / (#rows - 1))
+        if add_each > gap_room then add_each = gap_room end
+        if add_each > 0 then
+            row_gap = row_gap + add_each
+            extra_spacing_h = extra_spacing_h - add_each * (#rows - 1)
+        end
+    end
+    local extra_top_pad = 0
+    if extra_spacing_h > 0 then
+        extra_top_pad = math.floor(extra_spacing_h / 2)
+    end
 
     local face_title = Font:getFace("smallinfofont", Screen:scaleBySize(24))
     local face_value = Font:getFace("smallinfofont", Screen:scaleBySize(20))
@@ -873,9 +890,10 @@ local function build_dashboard_content(menu, cfg, dcfg, rows, data_provider)
 
     local children = { align = "left" }
     local used_h = 0
-    if page_pad > 0 then
-        table.insert(children, VerticalSpan:new{ width = page_pad })
-        used_h = used_h + page_pad
+    local top_pad = page_pad + extra_top_pad
+    if top_pad > 0 then
+        table.insert(children, VerticalSpan:new{ width = top_pad })
+        used_h = used_h + top_pad
     end
 
     local function title_for_component(comp_id)

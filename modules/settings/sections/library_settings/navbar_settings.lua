@@ -65,6 +65,7 @@ function M.build(ctx)
 
     local navbar_tab_items = {
         { id = "books",       text = _("Books")         },
+        { id = "dashboard",   text = _("Home")          },
         { id = "manga",       text = _("Manga")         },
         { id = "news",        text = _("News")          },
         { id = "continue",    text = _("Continue")      },
@@ -75,7 +76,6 @@ function M.build(ctx)
         { id = "series",      text = _("Series")        },
         { id = "tags",        text = _("Tags")          },
         { id = "to_be_read",  text = _("To Be Read")    },
-        { id = "dashboard",   text = _("Dashboard")     },
         { id = "search",         text = _("Search")          },
         { id = "calibre_search", text = _("Calibre Search")  },
         { id = "stats",          text = _("Stats")            },
@@ -86,8 +86,8 @@ function M.build(ctx)
     }
 
     local default_tab_ids = {
-        "books", "manga", "news", "history", "favorites",
-        "collections", "authors", "series", "tags", "to_be_read", "dashboard",
+        "dashboard", "books", "manga", "news", "history", "favorites",
+        "collections", "authors", "series", "tags", "to_be_read",
     }
 
     local tab_text_by_id = {}
@@ -454,8 +454,8 @@ function M.build(ctx)
                     {
                         text_func = function()
                             local label = config.navbar.dashboard_label
-                            if label == nil or label == "" then label = "Reading" end
-                            return _("Dashboard tab label: ") .. label
+                            if label == nil or label == "" then label = "Home" end
+                            return _("Home tab label: ") .. label
                         end,
                         separator = true,
                         keep_menu_open = true,
@@ -463,9 +463,9 @@ function M.build(ctx)
                             local InputDialog = require("ui/widget/inputdialog")
                             local dialog
                             dialog = InputDialog:new{
-                                title = _("Dashboard tab label"),
-                                input = config.navbar.dashboard_label or "Reading",
-                                input_hint = _("Default: Reading"),
+                                title = _("Home tab label"),
+                                input = config.navbar.dashboard_label or "Home",
+                                input_hint = _("Default: Home"),
                                 buttons = {{
                                     { text = _("Cancel"), callback = function() UIManager:close(dialog) end },
                                     {
@@ -473,7 +473,7 @@ function M.build(ctx)
                                         is_enter_default = true,
                                         callback = function()
                                             local text = dialog:getInputText()
-                                            config.navbar.dashboard_label = (text and text ~= "") and text or "Reading"
+                                            config.navbar.dashboard_label = (text and text ~= "") and text or "Home"
                                             UIManager:close(dialog)
                                             save_and_apply_navbar()
                                         end,
