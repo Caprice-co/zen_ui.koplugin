@@ -610,6 +610,7 @@ local function patch_list_item()
     local TextWidget      = require("ui/widget/textwidget")
     local VerticalGroup   = require("ui/widget/verticalgroup")
     local VerticalSpan    = require("ui/widget/verticalspan")
+    local _               = require("gettext")
 
     local Screen = Device.screen
     local scale_by_size = Screen:scaleBySize(1000000) * (1 / 1000000)
@@ -808,7 +809,7 @@ local function patch_list_item()
         local fs_meta     = _fontSize(14, 18)
         local left_offset = self.do_cover_image and (cover_zone_w + pad_left) or pad_left
 
-        local count_str = tostring(book_count) .. " " .. (book_count == 1 and "book" or "books")
+        local count_str = tostring(book_count) .. " " .. (book_count == 1 and _("book") or _("books"))
         local wright_status = TextWidget:new{
             text    = count_str,
             face    = library_font.getFace(fs_meta),
