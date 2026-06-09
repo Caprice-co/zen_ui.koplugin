@@ -99,9 +99,15 @@ local function ensure_strip_cfg(dcfg, module_id)
     local mcfg = ensure_module_cfg(dcfg, module_id)
     mcfg.order = normalize_order(mcfg.order)
     if mcfg.interactive == nil then mcfg.interactive = true end
-    if type(mcfg.count) ~= "number" then mcfg.count = 5 end
-    if mcfg.count < 3 then mcfg.count = 3 end
-    if mcfg.count > 5 then mcfg.count = 5 end
+    if mcfg.two_rows == nil then mcfg.two_rows = false end
+    if type(mcfg.count) ~= "number" then mcfg.count = mcfg.two_rows and 10 or 5 end
+    if mcfg.two_rows then
+        if mcfg.count < 2 then mcfg.count = 2 end
+        if mcfg.count > 10 then mcfg.count = 10 end
+    else
+        if mcfg.count < 3 then mcfg.count = 3 end
+        if mcfg.count > 5 then mcfg.count = 5 end
+    end
     if mcfg.show_strip_titles == nil then mcfg.show_strip_titles = false end
     return mcfg
 end
@@ -653,17 +659,33 @@ function M.build(ctx)
                 sub_item_table = build_order_items(mcfg),
             },
             {
+                text = _("Two rows"),
+                checked_func = function()
+                    return mcfg.two_rows == true
+                end,
+                callback = function()
+                    mcfg.two_rows = mcfg.two_rows ~= true
+                    if mcfg.two_rows then
+                        mcfg.count = 10
+                    else
+                        mcfg.count = 5
+                    end
+                    save_dashboard("reinit")
+                end,
+            },
+            {
                 text_func = function()
                     return _("Books shown: ") .. tostring(mcfg.count or 5)
                 end,
                 keep_menu_open = true,
                 callback = function()
                     local SpinWidget = require("ui/widget/spinwidget")
+                    local is_two = mcfg.two_rows == true
                     UIManager:show(SpinWidget:new{
                         title_text = _("Books shown"),
-                        value = mcfg.count or 5,
-                        value_min = 3,
-                        value_max = 5,
+                        value = mcfg.count or (is_two and 10 or 5),
+                        value_min = is_two and 2 or 3,
+                        value_max = is_two and 10 or 5,
                         callback = function(spin)
                             mcfg.count = spin.value
                             save_dashboard("reinit")

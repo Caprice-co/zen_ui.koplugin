@@ -248,6 +248,19 @@ local function resolve_rows(dcfg)
         local comp = Registry.get(id)
         if not comp then return end
         seen[id] = true
+        -- for strip widgets with two_rows enabled, double the size allocation
+        local mcfg = type(dcfg.modules) == "table" and dcfg.modules[id] or nil
+        if mcfg and mcfg.two_rows == true and comp.size then
+            local s = comp.size
+            comp = setmetatable({
+                size = {
+                    preferred_pct = (s.preferred_pct or 0.20) * 2,
+                    min_pct       = (s.min_pct       or 0.12) * 2,
+                    max_pct       = (s.max_pct       or 0.30) * 2,
+                    grow_priority = s.grow_priority,
+                },
+            }, { __index = comp })
+        end
         table.insert(out, comp)
     end
 
