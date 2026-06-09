@@ -1336,8 +1336,7 @@ function M.rebuildActive()
             needs_clock_rebuild = rows_need_clock_rebuild(resolve_rows(dcfg), dcfg)
         end
         if _dashboard_menu._zen_dashboard_show_status_bar ~= show_status_bar
-                or (not show_status_bar
-                    and _dashboard_menu._zen_dashboard_needs_clock_rebuild ~= needs_clock_rebuild) then
+                or _dashboard_menu._zen_dashboard_needs_clock_rebuild ~= needs_clock_rebuild then
             local UIManager = require("ui/uimanager")
             UIManager:close(_dashboard_menu)
             _dashboard_menu = nil

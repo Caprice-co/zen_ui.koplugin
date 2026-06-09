@@ -48,8 +48,8 @@ function M.build_strip(ctx, source_key)
 
     local min_gap = math.max(4, math.min(10, math.floor(width * 0.012)))
     local max_cover_w = math.max(24, math.floor((width - min_gap * (#books - 1)) / #books))
-    local row_top_pad = 0
-    local row_bottom_pad = math.max(2, Screen:scaleBySize(2))
+    local row_top_pad = math.max(4, Screen:scaleBySize(4))
+    local row_bottom_pad = math.max(4, Screen:scaleBySize(4))
     local strip_title_face = Font:getFace("smallinfofont", Screen:scaleBySize(10))
     local title_h = show_strip_titles and math.max(14, Screen:scaleBySize(12)) or 0
     local title_gap = show_strip_titles and math.max(1, Screen:scaleBySize(2)) or 0
