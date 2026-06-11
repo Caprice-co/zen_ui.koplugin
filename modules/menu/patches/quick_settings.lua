@@ -898,6 +898,14 @@ local function apply_quick_settings()
         return panel
     end
 
+    rawset(_G, "__ZEN_UI_BUILD_QUICK_SETTINGS_PREVIEW", function(item_width)
+        local touch_menu = {
+            item_width = item_width,
+            closeMenu = function() end,
+        }
+        return createQuickSettingsPanel(touch_menu)
+    end)
+
     -- ============================================================
     -- Gesture handler for panel taps/pans
     -- ============================================================
@@ -1140,6 +1148,47 @@ local function apply_quick_settings()
         end
         -- Holds outside the menu do nothing (don't close it)
         return true
+    end
+
+    local function close_panel_on_resize(tm)
+        if is_enabled() and tm and tm.item_table and tm.item_table.panel and tm.closeMenu then
+            tm:closeMenu()
+        end
+        return false
+    end
+
+    local function forward_rotation_after_close(tm, rotation)
+        close_panel_on_resize(tm)
+        local stack = UIManager._window_stack
+        local top = stack and stack[#stack] and stack[#stack].widget
+        if top and top ~= tm and top ~= tm.show_parent and type(top.handleEvent) == "function" then
+            return top:handleEvent(Event:new("SetRotationMode", rotation)) == true
+        end
+        return false
+    end
+
+    local orig_onSetRotationMode = TouchMenu.onSetRotationMode
+    function TouchMenu:onSetRotationMode(rotation, ...)
+        if rotation ~= nil and rotation ~= Screen:getRotationMode()
+                and forward_rotation_after_close(self, rotation) then
+            return true
+        end
+        if orig_onSetRotationMode then
+            return orig_onSetRotationMode(self, rotation, ...)
+        end
+        return false
+    end
+
+    local orig_onSetDimensions = TouchMenu.onSetDimensions
+    function TouchMenu:onSetDimensions(...)
+        close_panel_on_resize(self)
+        return orig_onSetDimensions and orig_onSetDimensions(self, ...)
+    end
+
+    local orig_onScreenResize = TouchMenu.onScreenResize
+    function TouchMenu:onScreenResize(...)
+        close_panel_on_resize(self)
+        return orig_onScreenResize and orig_onScreenResize(self, ...)
     end
 
     -- Delegate all slider gesture types to ZenSlider, which owns the logic.

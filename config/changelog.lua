@@ -96,4 +96,12 @@ return {
         "Add Vietnamese translation",
         "Bug fixes and performance improvements",
     },
+    ["2.0.0"] = {
+        "This update has breaking changes, settings will not be saved if you go back to v1.x",
+        "New customizable home page",
+        "Added rotation options in quick settings",
+        "Updated how settings are stored",
+        "Reorganized/restructured project",
+        "Bug fixes and performance improvements",
+    },
 }

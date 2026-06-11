@@ -52,11 +52,15 @@ rsync -a \
   --exclude '*.sh' \
   --exclude '*.md' \
   --exclude '*_includes/' \
+  --exclude '_config.yml' \
   --exclude '*.yml/' \
+  --exclude 'images/' \
   --exclude '.venv/' \
   --exclude '*.py' \
   --exclude '*.luarocks' \
-  --exclude '*.__pycache__' \
+  --exclude '*.luacheckrc' \
+  --exclude '__pycache__' \
+  --exclude '.*' \
   "$REPO_ROOT/" "$STAGE_DIR/"
 
 if [[ "$WITH_DICT" -eq 1 ]]; then

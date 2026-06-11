@@ -1578,13 +1578,31 @@ local function apply_navbar()
         local vg = VerticalGroup:new(vg_children)
         menu._zen_navbar_height = navbar:getSize().h
         local function resizeStandaloneBody(navbar_h)
-            local body_h = Screen:getHeight() - navbar_h
-            if body_h < 1 then body_h = Screen:getHeight() end
+            local screen_w = Screen:getWidth()
+            local screen_h = Screen:getHeight()
+            local body_h = screen_h - navbar_h
+            if body_h < 1 then body_h = screen_h end
+            menu.width = screen_w
             menu.height = body_h
+            if menu.dimen then
+                menu.dimen.w = screen_w
+                menu.dimen.h = screen_h
+            end
+            if menu.inner_dimen then
+                menu.inner_dimen.w = screen_w - 2 * (menu.border_size or 0)
+                menu.inner_dimen.h = body_h
+            end
             if type(body_widget) == "table" then
+                body_widget.width = screen_w
                 body_widget.height = body_h
-                if body_widget.dimen then body_widget.dimen.h = body_h end
-                if body_widget.inner_dimen then body_widget.inner_dimen.h = body_h end
+                if body_widget.dimen then
+                    body_widget.dimen.w = screen_w
+                    body_widget.dimen.h = body_h
+                end
+                if body_widget.inner_dimen then
+                    body_widget.inner_dimen.w = screen_w - 2 * (menu.border_size or 0)
+                    body_widget.inner_dimen.h = body_h
+                end
                 if body_widget.resetLayout then body_widget:resetLayout() end
             end
             if vg.resetLayout then vg:resetLayout() end
@@ -1611,6 +1629,46 @@ local function apply_navbar()
             resizeStandaloneBody(new_h)
             UIManager:setDirty(menu, "ui")
         end
+
+        local function reopenStandaloneAfterResize()
+            if menu._zen_standalone_reopen_scheduled then return false end
+            menu._zen_standalone_reopen_scheduled = true
+            utils.closeWidgetsAbove(menu)
+            if menu.close_callback then menu.close_callback()
+            elseif menu.onClose then menu:onClose()
+            else UIManager:close(menu) end
+            if menu._zen_close_stack then menu._zen_close_stack() end
+            UIManager:nextTick(function()
+                setActiveTab(view_tab_id)
+                local cb = tab_callbacks[view_tab_id]
+                if cb then cb() end
+            end)
+            return false
+        end
+
+        function menu:onSetRotationMode(rotation)
+            if rotation ~= nil and rotation ~= Screen:getRotationMode() then
+                local fm = FileManager.instance
+                if fm and type(fm.onSetRotationMode) == "function" then
+                    fm:onSetRotationMode(rotation)
+                else
+                    Screen:setRotationMode(rotation)
+                    UIManager:onRotation()
+                end
+                reopenStandaloneAfterResize()
+                return true
+            end
+            return false
+        end
+
+        function menu:onScreenResize()
+            return reopenStandaloneAfterResize()
+        end
+
+        function menu:onSetDimensions()
+            return reopenStandaloneAfterResize()
+        end
+
         menu[1] = FrameContainer:new{
             background = Blitbuffer.COLOR_WHITE,
             bordersize = 0,

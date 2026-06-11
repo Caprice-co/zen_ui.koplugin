@@ -10,6 +10,7 @@ local M = {}
 
 local _ = require("gettext")
 local T = require("ffi/util").template
+local ConfigManager = require("config/manager")
 local paths = require("common/paths")
 local PresetStore = require("config/preset_store")
 
@@ -320,6 +321,36 @@ local function buildContextMenuBB(slot_w, slot_h, cover_info)
     return canvas
 end
 
+local function buildQuickSettingsBB(slot_w, slot_h)
+    local ok_bb, Blitbuffer = pcall(require, "ffi/blitbuffer")
+    if not ok_bb then return nil end
+
+    local build_preview = rawget(_G, "__ZEN_UI_BUILD_QUICK_SETTINGS_PREVIEW")
+    if type(build_preview) ~= "function" then return nil end
+
+    local ok_panel, panel = pcall(build_preview, slot_w)
+    if not ok_panel or not panel then return nil end
+
+    local ok_size, sz = pcall(function() return panel:getSize() end)
+    if not ok_size or not sz then return nil end
+
+    local canvas = Blitbuffer.new(slot_w, slot_h, Blitbuffer.TYPE_BB8)
+    canvas:fill(Blitbuffer.COLOR_WHITE)
+    local dx = math.max(0, math.floor((slot_w - sz.w) / 2))
+    local dy = math.max(0, math.floor((slot_h - sz.h) / 2))
+    pcall(function()
+        panel:paintTo(canvas, dx, dy)
+    end)
+    return canvas
+end
+
+local function buildPageBrowserBB(slot_w, slot_h)
+    local build_preview = rawget(_G, "__ZEN_UI_BUILD_PAGE_BROWSER_PREVIEW")
+    if type(build_preview) ~= "function" then return nil end
+    local ok, bb = pcall(build_preview, slot_w, slot_h)
+    return ok and bb or nil
+end
+
 -- Render the zen-mode quicksettings button (circle border + quick_zen icon) centered
 -- on a white canvas. Returns a Blitbuffer (caller owns) or nil on error.
 local function buildZenButtonBB(avail_w)
@@ -370,7 +401,7 @@ local function buildMosaicBB(covers, avail_w)
     local ok_bb,  Blitbuffer  = pcall(require, "ffi/blitbuffer")
     local ok_iw,  ImageWidget = pcall(require, "ui/widget/imagewidget")
     local ok_dev, Device      = pcall(require, "device")
-    if not (ok_bb and ok_iw and ok_dev) then return nil end
+    if not (ok_bb and ok_dev) then return nil end
     local ok_font, Font       = pcall(require, "ui/font")
     local ok_tw,  TextWidget  = pcall(require, "ui/widget/textwidget")
     local Screen = Device.screen
@@ -385,7 +416,7 @@ local function buildMosaicBB(covers, avail_w)
         local cx = PAD + i * (cell_w + GAP)
         canvas:paintRect(cx, PAD, cell_w, cell_h, Blitbuffer.COLOR_GRAY_4)
         local c = covers[i + 1]
-        if c then
+        if c and ok_iw then
             pcall(function()
                 local iw = ImageWidget:new{
                     image                 = c.bb,
@@ -418,7 +449,7 @@ local function buildListBB(covers, avail_w)
     local ok_bb,  Blitbuffer  = pcall(require, "ffi/blitbuffer")
     local ok_iw,  ImageWidget = pcall(require, "ui/widget/imagewidget")
     local ok_dev, Device      = pcall(require, "device")
-    if not (ok_bb and ok_iw and ok_dev) then return nil end
+    if not (ok_bb and ok_dev) then return nil end
     local ok_font, Font       = pcall(require, "ui/font")
     local ok_tw,  TextWidget  = pcall(require, "ui/widget/textwidget")
     local Screen    = Device.screen
@@ -437,7 +468,7 @@ local function buildListBB(covers, avail_w)
         local ry = PAD + i * (thumb_h + GAP)
         canvas:paintRect(PAD, ry, thumb_w, thumb_h, Blitbuffer.COLOR_GRAY_4)
         local c = covers[i + 1]
-        if c then
+        if c and ok_iw then
             pcall(function()
                 local iw = ImageWidget:new{
                     image                 = c.bb,
@@ -517,8 +548,12 @@ function M.build_install_pages(ctx)
     local config = ctx.config
     local plugin = ctx.plugin
 
+    local function save_zen_config()
+        ConfigManager.save(config)
+    end
+
     local function save_and_apply(feature)
-        plugin:saveConfig()
+        save_zen_config()
         local ok, apply_mod = pcall(require, "modules/settings/zen_settings_apply")
         if ok and type(apply_mod.apply_feature_toggle) == "function" then
             apply_mod.apply_feature_toggle(plugin, feature, config.features[feature] == true)
@@ -612,7 +647,7 @@ function M.build_install_pages(ctx)
             if preset.zen.verbose_chapter_time ~= nil then
                 config.reader_footer.verbose_chapter_time = preset.zen.verbose_chapter_time
             end
-            plugin:saveConfig()
+            save_zen_config()
         end
     end
 
@@ -655,34 +690,13 @@ function M.build_install_pages(ctx)
             description = _("A minimal, clean, and simple interface for your e-reader.\n\nSwipe or tap Next to continue."),
         },
 
-        -- 2. File Browser (static)
-        {
-            title       = _("File Browser"),
-            image       = img("onboarding/library_covers.png"),
-            description = _("Clean, minimal library with mosaic cover art and list views, reduced clutter, and a streamlined context menu."),
-        },
-           -- 5. Context Menu (static)
-
-        {
-            title       = _("Context Menu"),
-            image       = img("onboarding/context_menu.png"),
-            description = _("Tap and hold any book or folder in your library to reveal details."),
-        },
-
-        -- 3. Authors & Series (static)
-        {
-            title       = _("Authors & Series"),
-            image       = img("onboarding/authors.png"),
-            description = _("Browse your entire library organized by author or series.\nAccess these views anytime from the navigation bar."),
-        },
-
-        -- 4. Library View (INTERACTIVE — radio)
+        -- 2. Library View (INTERACTIVE — radio)
         {
             title       = _("Library View"),
             choice_type = "radio",
             choices     = {
-                { id = "mosaic", text = _("Mosaic - large cover thumbnails"),     image = img("onboarding/library_covers.png"), checked = true  },
-                { id = "list",   text = _("List - detailed titles and metadata"), image = img("onboarding/library_list.png"),   checked = false },
+                { id = "mosaic", text = _("Mosaic - large cover thumbnails"),     checked = true  },
+                { id = "list",   text = _("List - detailed titles and metadata"), checked = false },
             },
             on_apply = function(sel)
                 if     sel["mosaic"] then apply_display_mode("mosaic_image")
@@ -691,14 +705,12 @@ function M.build_install_pages(ctx)
             end,
         },
 
-        -- 6. Navigation Bar (static)
         {
-            title       = _("Navigation Bar"),
-            image       = img("onboarding/navbar.png"),
-            description = _("A simple tab-based bar at the bottom of your library.\nFully customizable to make it your own"),
+            title       = _("Context Menu"),
+            description = _("Tap and hold any book or folder in your library to reveal details."),
         },
 
-        -- 7. Navbar Tabs (INTERACTIVE — checkbox)
+        -- 3. Navbar Tabs (INTERACTIVE — checkbox)
         {
             title          = _("Navbar Tabs"),
             description    = _("Choose which tabs appear in your navigation bar.\nYou can rearrange or adjust these anytime in Settings."),
@@ -728,37 +740,31 @@ function M.build_install_pages(ctx)
             end,
         },
 
-        -- 8. Quick Settings (static)
+        -- 4. Quick Settings (static)
         {
             title       = _("Quick Settings"),
-            image       = img("onboarding/quicksettings.png"),
-            description = _("Swipe down to reach quick settings like brightness, Wi-Fi, night mode, zen mode and more."),
+            description = _("Swipe down from the top to reach quick settings like brightness, Wi-Fi, night mode, zen mode and more.") .. "\n\n"
+                .. _("Add custom buttons for other plugins or actions."),
         },
 
-        -- 9. Zen Mode (static)
+        -- 5. Zen Mode (static)
         {
             title       = _("Zen Mode"),
             image       = img("onboarding/zen_mode.png"),
-            description = _("Turn on Zen mode to strip KOReader down to its bare essentials.\n\nRemove visual clutter for a focused, distraction-free reading experience. Exit at anytime from Settings."),
+            description = _("Turn on Zen mode to strip KOReader down to its bare essentials.\n\nRemove visual clutter for a focused, distraction-free reading experience. Exit at anytime from Settings.") .. "\n\n"
+                .. _("Disable zen mode to access default KOReader menus."),
         },
 
-        -- 10. Status Bars (static)
-        {
-            title       = _("Status Bar"),
-            image       = img("onboarding/status_bar.png"),
-            description = _("Minimal status bar in the library view.\nCustomizable - show only what you need: time, battery, etc."),
-        },
-
-        -- 11. Sleep Screen (INTERACTIVE — radio)
+        -- 6. Sleep Screen (INTERACTIVE — radio)
         {
             title       = _("Sleep Screen"),
             description = _("What should your device show when it goes to sleep?"),
             choice_type = "radio",
             choices     = {
                 { id = "keep",          text = _("Keep existing settings"),         checked = true  },
-                { id = "cover_black",   text = _("Book cover - black background"), checked = false },
-                { id = "zen_white",     text = _("Zen icon - white background"),   checked = false },
-                { id = "zen_black",     text = _("Zen icon - black background"),   checked = false },
+                { id = "cover_black",   text = _("Show Book cover"), checked = false },
+                { id = "zen_white",     text = _("Show Zen icon - white background"),   checked = false },
+                { id = "zen_black",     text = _("Show Zen icon - black background"),   checked = false },
             },
             on_apply = function(sel)
                 if sel["keep"] then return end
@@ -775,7 +781,7 @@ function M.build_install_pages(ctx)
             end,
         },
 
-        -- 12. Time Format (INTERACTIVE — radio)
+        -- 7. Time Format (INTERACTIVE — radio)
         {
             title       = _("Time Format"),
             description = _("Which time format do you prefer?"),
@@ -799,11 +805,10 @@ function M.build_install_pages(ctx)
             end,
         },
 
-        -- 13. Reader (INTERACTIVE — radio)
+        -- 8. Reader (INTERACTIVE — radio)
         {
             title       = _("Reader"),
-            image       = img("onboarding/reader.png"),
-            description = _("An unobtrusive reader view with customizable top clock and bottom progress bar."),
+            description = _("Customizable top status bar and bottom progress bar."),
             choice_type = "radio",
             choices     = {
                 { id = "keep", text = _("Keep existing settings"), checked = true  },
@@ -826,17 +831,17 @@ function M.build_install_pages(ctx)
             end,
         },
 
-        -- 15. Reader Progress (INTERACTIVE — radio)
+        -- 9. Reader Progress (INTERACTIVE — radio)
         {
             title       = _("Reader Progress"),
             description = _("Choose a preset for your reading progress bar."),
             choice_type = "radio",
             choices     = {
-                { id = "keep",     text = _("Keep existing settings"),                                                       checked = true  },
-                { id = "kindle",   text = _("Chapter Time + %"),      image = img("onboarding/kindle_like.png"),        checked = false },
-                { id = "pages",    text = _("Pages and %"),      image = img("onboarding/pages_percent.png"),      checked = false },
-                { id = "full",     text = _("Pages + Chapter Time + %"), image = img("onboarding/pages_time_percent.png"), checked = false },
-                { id = "centered", text = _("Centered Pages"),   image = img("onboarding/centered_pages.png"),     checked = false },
+                { id = "keep",     text = _("Keep existing settings"),       checked = true  },
+                { id = "kindle",   text = _("Chapter Time + %"),             checked = false },
+                { id = "pages",    text = _("Pages and %"),                  checked = false },
+                { id = "full",     text = _("Pages + Chapter Time + %"),     checked = false },
+                { id = "centered", text = _("Centered Pages"),               checked = false },
             },
             on_apply = function(sel)
                 if sel["keep"] then return end
@@ -851,21 +856,22 @@ function M.build_install_pages(ctx)
             end,
         },
 
-                -- 14. Page Browser (static)
+        -- 10. Page Browser (static)
         {
             title       = _("Page Browser"),
-            image       = img("onboarding/page_browser.png"),
-            description = _("Swipe up from the bottom while reading to open the Page Browser.\n\nSkim through pages or skip chapters, browse the table of contents, manage bookmarks, adjust fonts and more."),
+            description = _("Swipe up from the bottom while reading to open the Page Browser.\n\nSkim through pages or skip chapters, browse the table of contents, manage bookmarks, adjust fonts and more.") .. "\n\n"
+                .. _("The default KOReader reader menu is inside the Aa icon."),
         },
 
-        -- 16. Settings & Updates (static)
+        -- 11. Settings & Updates (static)
         {
             title       = _("Settings & Updates"),
-            image       = img("onboarding/zen_ui_settings.png"),
-            description = _("All settings in one unified tab.\nCheck for and install Zen UI updates directly from your e-reader."),
+            icon        = "zen_ui_update",
+            icon_size   = 120,
+            description = _("All settings are in one unified tab. This icon with the dot indicates an update is available.\n\nInstall Zen UI updates directly from your device."),
         },
 
-        -- 17. Finale
+        -- 12. Finale
         {
             title       = _("You're All Set"),
             icon        = "zen_ui",
@@ -950,22 +956,25 @@ function M.build_install_pages(ctx)
         local img_h   = scr_h - Device.screen:scaleBySize(60) - 1 - math.floor(scr_h * 0.40)
         local slot_w  = scr_w - qs_pad * 2
         local slot_h  = img_h - Device.screen:scaleBySize(8)
-        local mosaic_bb       = #covers > 0 and buildMosaicBB(covers, avail_w) or nil
-        local list_bb         = #covers > 0 and buildListBB(covers, avail_w) or nil
-        local browser_bb      = #covers > 0 and buildMosaicBB(covers, avail_w) or nil
+        local mosaic_bb       = buildMosaicBB(covers, avail_w)
+        local list_bb         = buildListBB(covers, avail_w)
         local context_menu_bb = buildContextMenuBB(slot_w, slot_h, covers[1])
+        local quicksettings_bb = buildQuickSettingsBB(slot_w, slot_h)
+        local page_browser_bb = buildPageBrowserBB(slot_w, slot_h)
         local zen_bb          = buildZenButtonBB(avail_w)
         local home_bb         = buildHomeIconBB(avail_w)
         for _i, c in ipairs(covers) do c.bb:free() end
         for _i, page in ipairs(pages) do
-            if page.title == _("File Browser") and browser_bb then
-                page.image_bb, page.image = browser_bb, nil
-            elseif page.title == _("Context Menu") and context_menu_bb then
+            if page.title == _("Context Menu") and context_menu_bb then
                 page.image_bb, page.image = context_menu_bb, nil
             elseif page.title == _("Zen Mode") and zen_bb then
                 page.image_bb, page.image = zen_bb, nil
             elseif page.title == _("Home Folder") and home_bb then
                 page.image_bb, page.image = home_bb, nil
+            elseif page.title == _("Quick Settings") and quicksettings_bb then
+                page.image_bb, page.image = quicksettings_bb, nil
+            elseif page.title == _("Page Browser") and page_browser_bb then
+                page.image_bb, page.image = page_browser_bb, nil
             end
             if page.choices then
                 for _j, choice in ipairs(page.choices) do
