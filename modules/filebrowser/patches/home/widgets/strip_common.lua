@@ -338,11 +338,10 @@ function M.build_strip(ctx, source_key)
     local row_gap = two_rows and math.max(2, Screen:scaleBySize(3)) or 0
     local row_top_pad = math.max(4, Screen:scaleBySize(4))
     local row_bottom_pad = math.max(4, Screen:scaleBySize(4))
+    local row_inner_bottom_pad = two_rows and math.max(2, Screen:scaleBySize(4)) or 0
     local strip_title_face = Font:getFace("smallinfofont", Screen:scaleBySize(10))
     local title_h = show_strip_titles and math.max(14, Screen:scaleBySize(12)) or 0
     local title_gap = show_strip_titles and math.max(1, Screen:scaleBySize(2)) or 0
-    local avail_h = height - row_top_pad - row_bottom_pad - (num_rows - 1) * row_gap
-    local max_cover_h_per_row = math.max(28, math.floor((avail_h - num_rows * (title_h + title_gap)) / num_rows))
 
     local row_books = {}
     for r = 1, num_rows do
@@ -354,6 +353,19 @@ function M.build_strip(ctx, source_key)
             table.insert(row_books[r], book)
         end
     end
+    local visible_rows = 0
+    for r = 1, num_rows do
+        if #row_books[r] > 0 then
+            visible_rows = visible_rows + 1
+        end
+    end
+    if visible_rows < 1 then visible_rows = 1 end
+    local avail_h = height
+        - row_top_pad
+        - row_bottom_pad
+        - math.max(0, visible_rows - 1) * row_gap
+        - visible_rows * row_inner_bottom_pad
+    local max_cover_h_per_row = math.max(28, math.floor((avail_h - visible_rows * (title_h + title_gap)) / visible_rows))
 
     local function build_row_widget(row_list)
         local n = #row_list
@@ -485,6 +497,9 @@ function M.build_strip(ctx, source_key)
             local row_widget, row_h = build_row_widget(row_books[r])
             total_row_h = total_row_h + row_h
             table.insert(vgroup, CenterContainer:new{ dimen = Geom:new{ w = width, h = row_h }, row_widget })
+            if row_inner_bottom_pad > 0 then
+                table.insert(vgroup, VerticalSpan:new{ width = row_inner_bottom_pad })
+            end
             if r < num_rows and #row_books[r + 1] > 0 then
                 table.insert(vgroup, VerticalSpan:new{ width = row_gap })
             end

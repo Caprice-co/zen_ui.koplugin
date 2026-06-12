@@ -78,12 +78,11 @@ return {
             if dw.free then dw:free() end
         end
 
-        local content_height = content_h or height
-        local edge_pad = math.max(2, Screen:scaleBySize(2))
         local first_row_trim = math.floor((time_h or 0) * 0.20)
+        -- center text block vertically within the widget
         local top = ctx.is_first_row
-            and (edge_pad - first_row_trim)
-            or math.max(0, height - content_height - edge_pad)
+            and math.floor((height - content_h - first_row_trim) / 2)
+            or math.floor((height - content_h) / 2)
 
         local content = {
             dimen = Geom:new{ w = width, h = height },

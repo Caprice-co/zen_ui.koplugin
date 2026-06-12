@@ -1061,6 +1061,12 @@ local function build_home_content(menu, dcfg, rows, data_provider)
     local layout_h = math.max(1, body_h - page_pad * 2)
     local row_gap = 0
     local max_row_gap = 0
+    if #rows > 1 then
+        local base_gap = math.max(4, Screen:scaleBySize(8))
+        local max_gaps_h = math.floor(layout_h * 0.08)
+        row_gap = math.min(base_gap, math.floor(max_gaps_h / (#rows - 1)))
+        max_row_gap = math.max(row_gap, Screen:scaleBySize(10))
+    end
     local gaps_h = row_gap * math.max(0, #rows - 1)
     local rows_h_budget = layout_h - gaps_h
     if rows_h_budget < #rows then rows_h_budget = math.max(1, layout_h) end

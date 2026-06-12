@@ -89,7 +89,8 @@ return {
         if author_widget then
             content_h = content_h + author_gap + (author_size.h or 0)
         end
-        local content_top = math.max(0, math.floor((height - content_h) * 0.5))
+        local available_h = math.max(0, height - content_h)
+        local content_top = math.min(available_h, Screen:scaleBySize(6))
         local content = {
             dimen = Geom:new{ w = width, h = height },
             getSize = function(self)
