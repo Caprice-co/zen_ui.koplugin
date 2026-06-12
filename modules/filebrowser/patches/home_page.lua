@@ -128,9 +128,15 @@ local function ensure_strip_module_cfg(dcfg, module_id)
     local mcfg = ensure_module_cfg(dcfg, module_id)
     mcfg.order = normalize_order(mcfg.order)
     if mcfg.interactive == nil then mcfg.interactive = true end
-    if type(mcfg.count) ~= "number" then mcfg.count = 5 end
-    if mcfg.count < 3 then mcfg.count = 3 end
-    if mcfg.count > 5 then mcfg.count = 5 end
+    if mcfg.two_rows == nil then mcfg.two_rows = false end
+    if type(mcfg.count) ~= "number" then mcfg.count = mcfg.two_rows and 10 or 5 end
+    if mcfg.two_rows then
+        if mcfg.count < 2 then mcfg.count = 2 end
+        if mcfg.count > 10 then mcfg.count = 10 end
+    else
+        if mcfg.count < 3 then mcfg.count = 3 end
+        if mcfg.count > 5 then mcfg.count = 5 end
+    end
     if mcfg.show_strip_titles == nil then mcfg.show_strip_titles = false end
     return mcfg
 end

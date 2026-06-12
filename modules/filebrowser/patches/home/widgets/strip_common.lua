@@ -17,7 +17,7 @@ local Device = require("device")
 local utils = require("common/utils")
 
 local M = {}
-M.SIZE = { preferred_pct = 0.20, min_pct = 0.12, max_pct = 0.40, grow_priority = 1 }
+M.SIZE = { preferred_pct = 0.20, min_pct = 0.12, max_pct = 0.50, grow_priority = 1 }
 
 -- ── Strip badge helpers ───────────────────────────────────────────────────────
 
@@ -306,14 +306,18 @@ function M.build_strip(ctx, source_key)
     local source = source_key or "recently_read"
     local order = module_cfg.order or "default"
     local two_rows = module_cfg.two_rows == true
-    local per_row = 5
+    local per_row
     local count
     if two_rows then
-        count = per_row * 2
+        count = tonumber(module_cfg.count) or 10
+        if count < 2 then count = 2 end
+        if count > 10 then count = 10 end
+        per_row = math.ceil(count / 2)
     else
         count = tonumber(module_cfg.count) or 5
         if count < 3 then count = 3 end
         if count > 5 then count = 5 end
+        per_row = count
     end
     local show_strip_titles = module_cfg.show_strip_titles == true
     local show_badges = module_cfg.show_badges == true
@@ -369,7 +373,7 @@ function M.build_strip(ctx, source_key)
 
     local function build_row_widget(row_list)
         local n = #row_list
-        local min_gap = math.max(4, math.min(10, math.floor(width * 0.012)))
+        local min_gap = math.max(6, math.min(Screen:scaleBySize(14), math.floor(width * 0.018)))
         local max_cover_w = math.max(24, math.floor((width - min_gap * (n - 1)) / n))
         local cover_h = math.min(max_cover_h_per_row, math.floor(max_cover_w * 1.62))
         if cover_h < 28 then cover_h = max_cover_h_per_row end
