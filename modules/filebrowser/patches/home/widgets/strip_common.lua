@@ -344,8 +344,23 @@ function M.build_strip(ctx, source_key)
     local row_bottom_pad = math.max(4, Screen:scaleBySize(4))
     local row_inner_bottom_pad = two_rows and math.max(2, Screen:scaleBySize(4)) or 0
     local strip_title_face = Font:getFace("smallinfofont", Screen:scaleBySize(10))
-    local title_h = show_strip_titles and math.max(14, Screen:scaleBySize(12)) or 0
+    -- Measure the real rendered single-line height: TextBoxWidget renders at
+    -- round((1+line_height)*face.size) and bumps a too-small height up to that,
+    -- so a guessed title_h underreserves and the title overflows into the navbar.
+    local title_h = 0
+    if show_strip_titles then
+        local probe = TextBoxWidget:new{
+            text = "Ag",
+            width = width,
+            face = strip_title_face,
+        }
+        title_h = probe:getSize().h
+        if probe.free then probe:free() end
+        if title_h < 1 then title_h = math.max(14, Screen:scaleBySize(12)) end
+    end
     local title_gap = show_strip_titles and math.max(1, Screen:scaleBySize(2)) or 0
+    -- cover_common floors cover height at 28px, so a row never shrinks below it.
+    local MIN_COVER_H = 28
 
     local row_books = {}
     for r = 1, num_rows do
@@ -364,19 +379,29 @@ function M.build_strip(ctx, source_key)
         end
     end
     if visible_rows < 1 then visible_rows = 1 end
-    local avail_h = height
-        - row_top_pad
-        - row_bottom_pad
-        - math.max(0, visible_rows - 1) * row_gap
-        - visible_rows * row_inner_bottom_pad
-    local max_cover_h_per_row = math.max(28, math.floor((avail_h - visible_rows * (title_h + title_gap)) / visible_rows))
+    local fixed_h = row_top_pad
+        + row_bottom_pad
+        + math.max(0, visible_rows - 1) * row_gap
+        + visible_rows * row_inner_bottom_pad
+    local avail_h = height - fixed_h
+    -- Covers can't shrink below MIN_COVER_H; if titles won't also fit within `height`,
+    -- drop them so the strip never overflows downward into the navbar (2-row / rotation).
+    if show_strip_titles
+            and avail_h < visible_rows * (MIN_COVER_H + title_gap + title_h) then
+        show_strip_titles = false
+        title_h = 0
+        title_gap = 0
+    end
+    local per_row_budget = math.floor((avail_h - visible_rows * (title_h + title_gap)) / visible_rows)
+    local max_cover_h_per_row = math.max(1, math.min(MIN_COVER_H, per_row_budget))
+    if per_row_budget > MIN_COVER_H then max_cover_h_per_row = per_row_budget end
 
     local function build_row_widget(row_list)
         local n = #row_list
         local min_gap = math.max(6, math.min(Screen:scaleBySize(14), math.floor(width * 0.018)))
         local max_cover_w = math.max(24, math.floor((width - min_gap * (n - 1)) / n))
         local cover_h = math.min(max_cover_h_per_row, math.floor(max_cover_w * 1.62))
-        if cover_h < 28 then cover_h = max_cover_h_per_row end
+        if cover_h < 1 then cover_h = max_cover_h_per_row end
 
         local items = {}
         local covers_w = 0

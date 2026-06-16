@@ -123,7 +123,7 @@ local defaults = {
         show_frontlight = true,
         show_warmth = true,
         flip_lh_rh_icon = false,
-        rotate_action = "cycle",
+        rotate_action = "90",
     },
     status_bar = {
         custom_text = " ",

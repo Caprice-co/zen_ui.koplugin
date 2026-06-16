@@ -98,8 +98,7 @@ return {
             or stat_style == "divider" and 8
             or 6
         local cell_w = math.max(20, math.floor((width - gap_w * 2) / 3))
-        local widget_vpad = math.max(10, math.min(16, math.floor(height * 0.10)))
-        local card_h = math.max(20, height - widget_vpad * 2)
+        local card_h = math.max(20, height)
         local Screen = Device.screen
         local value_face = Font:getFace("smallinfofont", Screen:scaleBySize(math.max(12, math.min(18, math.floor(card_h * 0.16)))))
         local label_face = Font:getFace("smallinfofont", Screen:scaleBySize(math.max(7, math.min(11, math.floor(card_h * 0.09)))))

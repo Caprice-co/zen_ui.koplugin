@@ -1317,15 +1317,15 @@ function M.build(ctx)
                         sub_item_table = {
                             {
                                 text = _("Custom featured widget"),
-                                sub_item_table = build_featured_widget_items("featured_custom"),
+                                sub_item_table_func = function() return build_featured_widget_items("featured_custom") end,
                             },
                             {
                                 text = _("To Be Read featured widget"),
-                                sub_item_table = build_featured_widget_items("featured_tbr"),
+                                sub_item_table_func = function() return build_featured_widget_items("featured_tbr") end,
                             },
                             {
                                 text = _("Recently read featured widget"),
-                                sub_item_table = build_featured_widget_items("featured_recent"),
+                                sub_item_table_func = function() return build_featured_widget_items("featured_recent") end,
                             },
                         },
                     },
@@ -1334,29 +1334,29 @@ function M.build(ctx)
                         sub_item_table = {
                             {
                                 text = _("Custom strip widget"),
-                                sub_item_table = build_strip_widget_items("strip_custom"),
+                                sub_item_table_func = function() return build_strip_widget_items("strip_custom") end,
                             },
                             {
                                 text = _("To Be Read strip widget"),
-                                sub_item_table = build_strip_widget_items("strip_tbr"),
+                                sub_item_table_func = function() return build_strip_widget_items("strip_tbr") end,
                             },
                             {
                                 text = _("Recently read strip widget"),
-                                sub_item_table = build_strip_widget_items("strip_recent"),
+                                sub_item_table_func = function() return build_strip_widget_items("strip_recent") end,
                             },
                         },
                     },
                     {
                         text = _("Reading goals"),
-                        sub_item_table = build_goals_items(),
+                        sub_item_table_func = build_goals_items,
                     },
                     {
                         text = _("Reading stats widget"),
-                        sub_item_table = build_stats_triplet_items(),
+                        sub_item_table_func = build_stats_triplet_items,
                     },
                     {
                         text = _("Quotes widget"),
-                        sub_item_table = build_quotes_items(),
+                        sub_item_table_func = build_quotes_items,
                     },
                 },
             },
