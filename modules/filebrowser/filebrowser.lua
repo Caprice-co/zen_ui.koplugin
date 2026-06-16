@@ -40,6 +40,7 @@ local PATCH_MODULES = {
     browser_show_hidden = "modules/filebrowser/patches/browser_show_hidden",
     browser_page_count = "modules/filebrowser/patches/browser_page_count",
     browser_series_badge = "modules/filebrowser/patches/browser_series_badge",
+    automatic_series_grouping = "modules/filebrowser/patches/automatic_series_grouping",
     browser_display_mode_by_path = "modules/filebrowser/patches/browser_display_mode_by_path",
     search = "modules/filebrowser/patches/search",
     group_view = "modules/filebrowser/patches/group_view",
@@ -186,6 +187,11 @@ function M.init(logger, plugin)
         run_feature(logger, plugin, "browser_series_badge", browser_series_badge_fn)
     end
 
+    local automatic_series_grouping_fn = load_patch("automatic_series_grouping")
+    if automatic_series_grouping_fn then
+        run_feature(logger, plugin, "automatic_series_grouping", automatic_series_grouping_fn)
+    end
+
     local group_view_fn = load_patch("group_view")
     if group_view_fn then
         run_feature(logger, plugin, "group_view", group_view_fn)
@@ -212,7 +218,7 @@ function M.init(logger, plugin)
         _G.__ZEN_UI_RUNTIME_PATCHES = runtime_patches
     end
 
-    for _, feature in ipairs(FEATURES) do
+    for _i, feature in ipairs(FEATURES) do
         if is_feature_enabled(plugin, feature) then
             local fn, err = load_patch(feature)
             if fn then

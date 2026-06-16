@@ -100,6 +100,7 @@ return {
         "IMPORTANT: Update via settings or completely delete old zen_ui.koplugin",
         "IMPORTANT: This update has breaking changes, settings will not be saved if you go back to v1.x",
         "New customizable home page (Zen settings > Home)",
+        "Added automatic grouping of series into virtual folders (Library > Folders)",
         "Added natural title sorting in context menu",
         "Added rotation options in quick settings",
         "Updated how settings are stored",

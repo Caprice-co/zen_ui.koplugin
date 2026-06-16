@@ -425,6 +425,14 @@ local function apply_context_menu()
                 end
             end
 
+            if item._is_current_dir
+                    and self_fc.item_table
+                    and self_fc.item_table.is_in_series_view
+                    and self_fc.item_table._zen_series_group_item then
+                item = self_fc.item_table._zen_series_group_item
+            end
+            local is_virtual_folder = item.is_series_group == true
+
             -- Group context menu (authors/series views)
             if item._zen_group_files then
                 local group_files = item._zen_group_files
@@ -955,14 +963,36 @@ local function apply_context_menu()
                     dialog_title = text_str or BD.filename(file:match("([^/]+)$"))
                 else
                     -- folder
-                    local name = (file:match("([^/]+)/?$") or file):gsub("/$", "")
+                    local is_series_group = is_virtual_folder
+                    local name = is_series_group
+                        and (item.text or item._zen_group_name or file)
+                        or (file:match("([^/]+)/?$") or file):gsub("/$", "")
                     local folder_name_str = BD.directory(name)
                     local lfs = require("libs/libkoreader-lfs")
                     local DocReg = require("document/documentregistry")
 
                     -- Use real FileChooser so cover order/scope matches the browser
                     local _fm = require("apps/filemanager/filemanager")
-                    local _cover_chooser = _fm.instance and _fm.instance.file_chooser
+                    local _cover_chooser
+                    if is_series_group then
+                        _cover_chooser = {
+                            genItemTableFromPath = function()
+                                local entries = {}
+                                for _i, series_item in ipairs(item.series_items or {}) do
+                                    local series_path = series_item and (series_item.path or series_item.file)
+                                    if series_path and not series_item.is_go_up then
+                                        table.insert(entries, {
+                                            path = series_path,
+                                            is_file = true,
+                                        })
+                                    end
+                                end
+                                return entries
+                            end
+                        }
+                    else
+                        _cover_chooser = _fm.instance and _fm.instance.file_chooser
+                    end
                     if not _cover_chooser then
                         -- Fallback: non-recursive immediate-dir listing
                         _cover_chooser = {
@@ -986,45 +1016,62 @@ local function apply_context_menu()
                         }
                     end
 
-                    -- Use unified makeCover for folder
-                    local cover_widget = Cover.makeCover(file, _cover_chooser, {
+                    -- Use unified makeCover for folder, including virtual series folders.
+                    local cover_path = is_series_group
+                        and ("zen-series://" .. folder_name_str)
+                        or file
+                    local cover_widget = Cover.makeCover(cover_path, _cover_chooser, {
                         is_folder = true,
                         max_w = cover_max_w,
                         max_h = cover_max_h,
                         folder_name = folder_name_str,
                     })
 
-                 -- Apply rounded corners
-                if cover_widget and _zen_apply_rounded_cover then
-                    _zen_apply_rounded_cover(cover_widget, border)
-                end
+                    -- Apply rounded corners
+                    if cover_widget and _zen_apply_rounded_cover then
+                        _zen_apply_rounded_cover(cover_widget, border)
+                    end
 
                     if cover_widget then
                         -- Count books recursively for the display label
                         local n_books = 0
-                        local function _cnt(dir, depth)
-                            if depth > 5 then return end
-                            local ok_d, it, obj = pcall(lfs.dir, dir)
-                            if not ok_d then return end
-                            for fname in it, obj do
-                                if fname ~= "." and fname ~= ".." and not fname:match("^%.") then
-                                    local fpath = dir .. "/" .. fname
-                                    local fmode = lfs.attributes(fpath, "mode")
-                                    if fmode == "file" and DocReg:hasProvider(fpath) then
-                                        n_books = n_books + 1
-                                    elseif fmode == "directory" then
-                                        _cnt(fpath, depth + 1)
+                        if is_series_group then
+                            for _i, series_item in ipairs(item.series_items or {}) do
+                                if series_item and not series_item.is_go_up
+                                        and (series_item.is_file or series_item.path or series_item.file) then
+                                    n_books = n_books + 1
+                                end
+                            end
+                        else
+                            local function _cnt(dir, depth)
+                                if depth > 5 then return end
+                                local ok_d, it, obj = pcall(lfs.dir, dir)
+                                if not ok_d then return end
+                                for fname in it, obj do
+                                    if fname ~= "." and fname ~= ".." and not fname:match("^%.") then
+                                        local fpath = dir .. "/" .. fname
+                                        local fmode = lfs.attributes(fpath, "mode")
+                                        if fmode == "file" and DocReg:hasProvider(fpath) then
+                                            n_books = n_books + 1
+                                        elseif fmode == "directory" then
+                                            _cnt(fpath, depth + 1)
+                                        end
                                     end
                                 end
                             end
+                            _cnt(file, 0)
                         end
-                        _cnt(file, 0)
                         local folder_count_str = n_books > 0
                             and (n_books == 1 and _("1 book") or (tostring(n_books) .. " " .. _("books")))
                             or nil
-                        dialog_title = folder_count_str
-                            and (folder_name_str .. "\n" .. folder_count_str)
-                            or folder_name_str
+                        local virtual_folder_str = is_series_group and _("Virtual folder") or nil
+                        dialog_title = folder_name_str
+                        if folder_count_str then
+                            dialog_title = dialog_title .. "\n" .. folder_count_str
+                        end
+                        if virtual_folder_str then
+                            dialog_title = dialog_title .. "\n" .. virtual_folder_str
+                        end
 
                         local framed_h = cover_max_h + 2 * border
                         local text_col_w = math.max(avail_w - cover_max_w - 2 * border - gap, Screen:scaleBySize(60))
@@ -1040,6 +1087,15 @@ local function apply_context_menu()
                             table.insert(vstack, TextWidget:new{
                                 text = folder_count_str,
                                 face = library_font.getFace(17),
+                                max_width = text_col_w,
+                            })
+                        end
+                        if virtual_folder_str then
+                            table.insert(vstack, VerticalSpan:new{ width = Screen:scaleBySize(2) })
+                            table.insert(vstack, TextWidget:new{
+                                text = virtual_folder_str,
+                                face = library_font.getFace(14),
+                                fgcolor = Blitbuffer.COLOR_GRAY_3,
                                 max_width = text_col_w,
                             })
                         end
@@ -1191,8 +1247,9 @@ local function apply_context_menu()
                 end
             end
 
-            -- Edit submenu (unchanged)
+            -- Edit submenu
             local function showEditSubmenu()
+                if is_virtual_folder then return end
                 close_dialog()
                 local edit_dialog
 
@@ -1347,7 +1404,7 @@ local function apply_context_menu()
                 })
             end
 
-            if not is_file and is_not_parent_folder and not is_home_dir then
+            if not is_file and is_not_parent_folder and not is_home_dir and not is_virtual_folder then
                 table.insert(buttons, {
                     {
                         text = "\u{F0CB6}  " .. _("Rename"),
@@ -1730,7 +1787,9 @@ local function apply_context_menu()
                     local fsd_api = rawget(_G, "__ZEN_FOLDER_SORT")
                     if fsd_api then
                         local ffiUtil_fsd = require("ffi/util")
-                        local real_folder = ffiUtil_fsd.realpath(file) or file
+                        local real_folder = item._zen_sort_key
+                            or ffiUtil_fsd.realpath(file)
+                            or file
 
                         table.insert(buttons, {
                             {
@@ -1883,7 +1942,7 @@ local function apply_context_menu()
                 })
             end
 
-            if not item._zen_home_context then
+            if not item._zen_home_context and not is_virtual_folder then
                 table.insert(buttons, {
                     {
                         text = "\u{F090C}  " .. _("Edit") .. "  " .. submenu_arrow,

@@ -36,15 +36,15 @@ local function apply_browser_folder_cover()
         local function findItem(sub_items, texts)
             local find = {}
             local text_list = type(texts) == "table" and texts or { texts }
-            for _, text in ipairs(text_list) do find[text] = true end
-            for _, item in ipairs(sub_items) do
+            for _i, text in ipairs(text_list) do find[text] = true end
+            for _i, item in ipairs(sub_items) do
                 local text = item.text or (item.text_func and item.text_func())
                 if text and find[text] then return item end
             end
         end
 
         local sub_items, item
-        for _, texts in ipairs { ... } do
+        for _i, texts in ipairs { ... } do
             sub_items = (item or menu).sub_item_table
             if not sub_items then return end
             item = findItem(sub_items, texts)
@@ -55,7 +55,7 @@ local function apply_browser_folder_cover()
 
     local function toKey(...)
         local keys = {}
-        for _, key in pairs { ... } do
+        for _i, key in pairs { ... } do
             if type(key) == "table" then
                 table.insert(keys, "table")
                 for k, v in pairs(key) do
@@ -141,6 +141,15 @@ local function apply_browser_folder_cover()
     local cached_list = {}
     local _item_table_cache = nil
 
+    local function _automatic_series_grouping_enabled()
+        local plugin = _plugin or rawget(_G, "__ZEN_UI_PLUGIN")
+        local features = plugin and plugin.config and plugin.config.features
+        if type(features) ~= "table" then
+            return true
+        end
+        return features.automatic_series_grouping ~= false
+    end
+
     function FileChooser:getListItem(dirpath, f, fullpath, attributes, collate)
         if self._dummy or self.name ~= "filemanager" then
             return orig_FileChooser_getListItem(self, dirpath, f, fullpath, attributes, collate)
@@ -194,13 +203,19 @@ local function apply_browser_folder_cover()
     local function _item_table_key(path)
         local mtime = lfs.attributes(path, "modification") or 0
         local filter = FileChooser.show_filter and FileChooser.show_filter.status
-        return string.format("%s|%d|%s|%s|%s|%s|%s",
+        return string.format("%s|%d|%s|%s|%s|%s|%s|%s",
             path, mtime,
             G_reader_settings:readSetting("collate", "strcoll"),
             tostring(G_reader_settings:isTrue("collate_mixed")),
             tostring(G_reader_settings:isTrue("reverse_collate")),
             tostring(FileChooser.show_hidden),
-            tostring(filter))
+            tostring(filter),
+            tostring(_automatic_series_grouping_enabled()))
+    end
+
+    function FileChooser:_zen_clear_item_table_cache()
+        _item_table_cache = nil
+        cached_list = {}
     end
 
     local orig_FileChooser_genItemTableFromPath = FileChooser.genItemTableFromPath
@@ -283,7 +298,7 @@ local function apply_browser_folder_cover()
                     if not pending then return end
                     local show_parent = menu.show_parent
                     pending_folders_by_menu[menu] = nil
-                    for _, item in ipairs(pending) do
+                    for _i, item in ipairs(pending) do
                         if item then
                             item._zen_pending_refresh = nil
                             if not item._foldercover_processed then
@@ -545,6 +560,61 @@ local function apply_browser_folder_cover()
             },
         }
 
+        local function getCoverFromSeriesItems(series_items, menu_cover_specs)
+            if type(series_items) ~= "table" then return { no_image = true } end
+            local mode = get_fbc().cover_mode or "gallery"
+            if mode ~= "gallery" and mode ~= "stack" and mode ~= "none" then
+                mode = "normal"
+            end
+            if mode == "none" then
+                return { no_image = true }
+            end
+
+            local max_covers = (mode == "gallery" or mode == "stack") and 4 or 1
+            local need_copy = mode == "gallery" or mode == "stack"
+            local covers = {}
+
+            for _i, book_entry in ipairs(series_items) do
+                local path = book_entry and (book_entry.path or book_entry.file)
+                if path then
+                    local bookinfo = BookInfoManager:getBookInfo(path, true)
+                    local invalid = bookinfo and type(BookInfoManager.isCachedCoverInvalid) == "function"
+                        and BookInfoManager.isCachedCoverInvalid(bookinfo, menu_cover_specs)
+                    if bookinfo
+                            and bookinfo.cover_bb
+                            and bookinfo.has_cover
+                            and bookinfo.cover_fetched
+                            and not bookinfo.ignore_cover
+                            and not invalid then
+                        table.insert(covers, {
+                            data = need_copy and bookinfo.cover_bb:copy() or bookinfo.cover_bb,
+                            w = bookinfo.cover_w,
+                            h = bookinfo.cover_h,
+                        })
+                    elseif not invalid then
+                        local cover_bb, cover_w, cover_h = Cover.genCover(path, 200, 300)
+                        table.insert(covers, {
+                            data = cover_bb,
+                            w = cover_w,
+                            h = cover_h,
+                        })
+                    end
+                    if #covers >= max_covers then
+                        break
+                    end
+                end
+            end
+
+            if #covers == 0 then
+                return { no_image = true }
+            elseif mode == "gallery" then
+                return { gallery = covers }
+            elseif mode == "stack" then
+                return { stack = covers }
+            end
+            return covers[1]
+        end
+
         local function getEffectiveMosaicHeight(item)
             local h = item.height
             local strip_h = rawget(MosaicMenuItem, "_zen_strip_h") or 0
@@ -795,6 +865,21 @@ local function apply_browser_folder_cover()
                 self._foldercover_processed = true
                 self._zen_render_night = Device.screen.night_mode
                 self:_setFolderCover { no_image = true }
+                return
+            end
+
+            if self.entry.is_series_group then
+                local series_cover = getCoverFromSeriesItems(
+                    self.entry.series_items,
+                    self.menu and self.menu.cover_specs
+                )
+                self._foldercover_processed = true
+                self._zen_render_night = Device.screen.night_mode
+                if series_cover then
+                    self:_setFolderCover(series_cover)
+                else
+                    self:_setFolderCover { no_image = true }
+                end
                 return
             end
 
@@ -1090,6 +1175,21 @@ local function apply_browser_folder_cover()
                     if self.entry.is_file or self.entry.file then return end
                     local dir_path = self.entry and self.entry.path
                     if not dir_path then return end
+
+                    if self.entry.is_series_group then
+                        local series_cover = getCoverFromSeriesItems(
+                            self.entry.series_items,
+                            self.menu and self.menu.cover_specs
+                        )
+                        self._foldercover_processed = true
+                        self._zen_render_night = Device.screen.night_mode
+                        if series_cover then
+                            self:_setListFolderCover(series_cover)
+                        else
+                            self:_setListFolderCover { no_image = true }
+                        end
+                        return
+                    end
 
                     local _fm_inst = require("apps/filemanager/filemanager").instance
                     local _main_ch = _fm_inst and _fm_inst.file_chooser

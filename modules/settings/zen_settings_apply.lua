@@ -17,6 +17,7 @@ local PATCH_MODULES = {
     browser_folder_cover = "modules/filebrowser/patches/browser_folder_cover",
     browser_hide_underline = "modules/filebrowser/patches/browser_hide_underline",
     browser_hide_up_folder = "modules/filebrowser/patches/browser_hide_up_folder",
+    automatic_series_grouping = "modules/filebrowser/patches/automatic_series_grouping",
     reader_top_status_bar = "modules/reader/patches/reader_top_status_bar",
 }
 
@@ -33,6 +34,7 @@ local APPLY_MODE = {
     status_bar = "filemanager_reinit",
     disable_top_menu_swipe_zones = "menu_refresh",
     browser_hide_up_folder = "filemanager_refresh",
+    automatic_series_grouping = "filemanager_refresh",
     reader_top_status_bar = "reader_refresh",
 }
 

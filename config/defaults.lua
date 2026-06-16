@@ -47,6 +47,7 @@ local defaults = {
         search = true,
         browser_cover_rounded_corners = true,
         browser_cover_mosaic_uniform = true,
+        automatic_series_grouping = true,
         partial_page_repaint = false,
         reader_top_status_bar = true,
         reader_bottom_menu = false,
@@ -180,7 +181,7 @@ local defaults = {
         hold_skip          = "ends",       -- "10" | "20" | "ends"
     },
     context_menu = {
-        allow_delete = false,
+        allow_delete = true,
     },
     reader_top_status_bar = {
         font_face = "default",
