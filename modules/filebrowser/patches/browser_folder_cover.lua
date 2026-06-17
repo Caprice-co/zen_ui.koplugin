@@ -578,7 +578,8 @@ local function apply_browser_folder_cover()
                 local path = book_entry and (book_entry.path or book_entry.file)
                 if path then
                     local bookinfo = BookInfoManager:getBookInfo(path, true)
-                    local invalid = bookinfo and type(BookInfoManager.isCachedCoverInvalid) == "function"
+                    local invalid = bookinfo and type(menu_cover_specs) == "table"
+                        and type(BookInfoManager.isCachedCoverInvalid) == "function"
                         and BookInfoManager.isCachedCoverInvalid(bookinfo, menu_cover_specs)
                     if bookinfo
                             and bookinfo.cover_bb
