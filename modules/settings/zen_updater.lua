@@ -1555,8 +1555,10 @@ local function _show_update_screen_and_install(plugin)
     local screen
     screen = ZenScreen:new{
         title        = _("Zen UI"),
+        title_icon   = true,
         subtitle     = _("Update available: ") .. ver_label,
         changelog    = changelog_items,
+        hide_logo    = true,
         button       = _("Update now"),
         later_button = _("Later"),
         dismissable  = true,

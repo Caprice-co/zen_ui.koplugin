@@ -35,6 +35,7 @@ local _plugin_root = require("common/plugin_root") or ""
 local ZenScreen = InputContainer:extend{
     title             = nil,   -- string shown in top bar; nil hides the title bar entirely
     title_icon        = false, -- force inline Zen icon to the left of title text
+    hide_logo         = false, -- hide the large center logo while keeping the rest of the layout
     subtitle          = nil,   -- string rendered above the icon (e.g. "Updated to v1.2.3")
     changelog         = nil,   -- array of strings; when set, logo shrinks to make room for a bullet list
     scroll_text       = nil,   -- long-form changelog text rendered in a scrollable view
@@ -198,7 +199,7 @@ function ZenScreen:paintTo(bb, x, y)
     local HDR_GAP   = Screen:scaleBySize(6)
     local ITEM_GAP  = Screen:scaleBySize(4)
 
-    local logo_h = use_scroll_text and 0 or content_h
+    local logo_h = (use_scroll_text or self.hide_logo) and 0 or content_h
     local item_widgets = {}
     local hdr_tw, hdr_h
 
@@ -225,7 +226,7 @@ function ZenScreen:paintTo(bb, x, y)
         end
 
         local cl_total = 1 + SEP_PX + hdr_h + HDR_GAP + items_h + SEP_PX
-        logo_h = math.max(0, content_h - cl_total)
+        logo_h = self.hide_logo and 0 or math.max(0, content_h - cl_total)
     end
 
     local has_cl = hdr_tw ~= nil
@@ -295,7 +296,7 @@ function ZenScreen:paintTo(bb, x, y)
     end
 
     -- Logo (hidden when changelog consumes too much space).
-    if not use_scroll_text and ImageWidget and _plugin_root ~= "" then
+    if not use_scroll_text and not self.hide_logo and ImageWidget and _plugin_root ~= "" then
         local logo    = _plugin_root .. "/icons/zen_ui.svg"
         local logo_sz = has_cl
             and math.floor(math.min(L.sw - L.pad * 2, logo_h - L.pad * 2))
@@ -448,6 +449,8 @@ function ZenScreen:update(opts)
     local text_changed = false
     if opts.subtitle ~= nil then self.subtitle = opts.subtitle end
     if opts.title ~= nil then self.title = opts.title end
+    if opts.title_icon ~= nil then self.title_icon = opts.title_icon end
+    if opts.hide_logo ~= nil then self.hide_logo = opts.hide_logo end
     if opts.changelog ~= nil then self.changelog = opts.changelog end
     if opts.scroll_text ~= nil then
         self.scroll_text = opts.scroll_text

@@ -68,22 +68,7 @@ jobs:
         if: steps.version_check.outputs.skip == 'false'
         run: |
           VERSION="${{ steps.meta.outputs.version }}"
-          python3 - "$VERSION" <<'PYEOF' > release_notes.md
-          import re, sys
-          version = sys.argv[1]
-          with open("config/changelog.lua") as f:
-              content = f.read()
-          pattern = r'\["' + re.escape(version) + r'"\]\s*=\s*\{([^}]+)\}'
-          m = re.search(pattern, content, re.DOTALL)
-          if m:
-              block = m.group(1)
-              items = [a or b for a, b in re.findall(r'"([^"]+)"|\'([^\']+)\'', block)]
-              print("## What's Changed\n")
-              for item in items:
-                  print(f"- {item}")
-          else:
-              print("## What's Changed\n\n_No changelog entries for this version._")
-          PYEOF
+          python3 .github/scripts/build_release_notes.py "$VERSION" > release_notes.md
 
       - name: Create release
         if: steps.version_check.outputs.skip == 'false'
@@ -96,4 +81,3 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --title "Zen UI $TAG" \
             --notes-file release_notes.md
-
