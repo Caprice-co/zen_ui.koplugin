@@ -3,28 +3,53 @@ local M = {}
 M.SENTINEL = "__menu_callback"
 M.SUBMENU = "__menu_submenu"
 
-local NATIVE = {
-    screenshot = true,
-    menu = true,
-    history = true,
-    bookinfo = true,
-    collections = true,
-    filesearcher = true,
-    folder_shortcuts = true,
-    languagesupport = true,
-    dictionary = true,
-    wikipedia = true,
-    devicestatus = true,
-    devicelistener = true,
-    networklistener = true,
+local EXCLUDED_PLUGINS = {
     zen_ui = true,
 }
 
 local LAUNCH_METHODS = { "onShow", "show", "open", "launch", "onOpen" }
 
-local function live_file_manager()
+local function live_uis()
+    local out = {}
     local fm_mod = package.loaded["apps/filemanager/filemanager"]
-    return fm_mod and fm_mod.instance or nil
+    if fm_mod and fm_mod.instance then
+        out[#out + 1] = fm_mod.instance
+    end
+    local reader_mod = package.loaded["apps/reader/readerui"]
+    if reader_mod and reader_mod.instance then
+        out[#out + 1] = reader_mod.instance
+    end
+    return out
+end
+
+local function plugin_loader()
+    local ok, loader = pcall(require, "pluginloader")
+    return ok and loader or nil
+end
+
+local function enabled_plugin_names()
+    local names = {}
+    local loader = plugin_loader()
+    if not (loader and type(loader.loadPlugins) == "function") then
+        return names
+    end
+    local ok, enabled = pcall(loader.loadPlugins, loader)
+    if not ok or type(enabled) ~= "table" then
+        return names
+    end
+    for _i, plugin in ipairs(enabled) do
+        if type(plugin) == "table" and type(plugin.name) == "string" then
+            names[plugin.name] = true
+        end
+    end
+    names.zen_ui = nil
+    return names
+end
+
+local function is_callable(value)
+    if type(value) == "function" then return true end
+    local mt = type(value) == "table" and getmetatable(value) or nil
+    return type(mt) == "table" and type(mt.__call) == "function"
 end
 
 local function probe_menu_entry(mod, key)
@@ -54,12 +79,21 @@ local function text_without_glyph(text)
     return (text:gsub("^%s+", ""):gsub("%s+$", ""))
 end
 
+local function entry_text(entry)
+    if type(entry) ~= "table" then return nil end
+    if type(entry.text_func) == "function" then
+        local ok, text = pcall(entry.text_func)
+        if ok then return text_without_glyph(text) end
+    end
+    return text_without_glyph(entry.text)
+end
+
 local function find_method(mod, key)
     for _i, method in ipairs(LAUNCH_METHODS) do
-        if type(mod[method]) == "function" then return method end
+        if is_callable(mod[method]) then return method end
     end
     local camel = "on" .. key:sub(1, 1):upper() .. key:sub(2)
-    if type(mod[camel]) == "function" then return camel end
+    if is_callable(mod[camel]) then return camel end
     local entry = probe_menu_entry(mod, key)
     if entry then
         if type(entry.callback) == "function" then
@@ -71,32 +105,45 @@ local function find_method(mod, key)
     end
 end
 
+local function add_candidate(out, seen, key, mod)
+    if type(key) ~= "string" or key == "" or EXCLUDED_PLUGINS[key] or seen[key]
+            or type(mod) ~= "table" then
+        return
+    end
+    local method = find_method(mod, key)
+    if not method then return end
+    seen[key] = true
+    local entry = probe_menu_entry(mod, key)
+    local title = entry_text(entry)
+    if not title or title == "" then
+        title = key:sub(1, 1):upper() .. key:sub(2)
+    end
+    out[#out + 1] = { key = key, method = method, title = title }
+end
+
 function M.scan()
     local ok, results = pcall(function()
-        local fm = live_file_manager()
-        if not fm then return {} end
-        local key_of = {}
-        for key, value in pairs(fm) do
-            if type(key) == "string" and type(value) == "table" then
-                key_of[value] = key
+        local out, seen = {}, {}
+        local loader = plugin_loader()
+        if loader and type(loader.loaded_plugins) == "table" then
+            for key, mod in pairs(loader.loaded_plugins) do
+                add_candidate(out, seen, key, mod)
             end
         end
-        local out, seen = {}, {}
-        for _i, mod in ipairs(fm) do
-            local key = type(mod) == "table" and type(mod.name) == "string"
-                and key_of[mod] or nil
-            if key and not NATIVE[key] and not seen[key]
-                    and type(mod.addToMainMenu) == "function" then
-                seen[key] = true
-                local method = find_method(mod, key)
-                if method then
-                    local entry = probe_menu_entry(mod, key)
-                    local title = entry and text_without_glyph(entry.text)
-                    if not title or title == "" then
-                        title = key:sub(1, 1):upper() .. key:sub(2)
-                    end
-                    out[#out + 1] = { key = key, method = method, title = title }
+
+        local names = enabled_plugin_names()
+        if loader and type(loader.getPluginInstance) == "function" then
+            for key in pairs(names) do
+                local ok_plugin, plugin = pcall(loader.getPluginInstance, loader, key)
+                if ok_plugin then
+                    add_candidate(out, seen, key, plugin)
                 end
+            end
+        end
+
+        for _i, ui in ipairs(live_uis()) do
+            for key in pairs(names) do
+                add_candidate(out, seen, key, ui[key])
             end
         end
         table.sort(out, function(a, b) return a.title < b.title end)
@@ -105,27 +152,45 @@ function M.scan()
     return ok and results or {}
 end
 
+local function live_plugin(key)
+    local loader = plugin_loader()
+    local loaded = loader and loader.loaded_plugins
+    if type(loaded) == "table" and type(loaded[key]) == "table" then
+        return loaded[key]
+    end
+    if loader and type(loader.getPluginInstance) == "function" then
+        local ok, plugin = pcall(loader.getPluginInstance, loader, key)
+        if ok and type(plugin) == "table" then
+            return plugin
+        end
+    end
+    for _i, ui in ipairs(live_uis()) do
+        if type(ui[key]) == "table" then
+            return ui[key]
+        end
+    end
+end
+
 function M.exists(key, method)
     if type(key) ~= "string" or type(method) ~= "string" then return false end
-    local fm = live_file_manager()
-    local mod = fm and fm[key]
+    local mod = live_plugin(key)
     if type(mod) ~= "table" then return false end
     if method == M.SENTINEL or method == M.SUBMENU then
         return type(mod.addToMainMenu) == "function"
     end
-    return type(mod[method]) == "function"
+    return is_callable(mod[method])
 end
 
 local TOUCHMENU_STUB = {
     closeMenu = function() end,
+    onClose = function() end,
     updateItems = function() end,
     handleEvent = function() return false end,
 }
 
 function M.resolve(key, method)
     if type(key) ~= "string" or type(method) ~= "string" then return nil end
-    local fm = live_file_manager()
-    local mod = fm and fm[key]
+    local mod = live_plugin(key)
     if type(mod) ~= "table" then return nil end
     if method == M.SENTINEL then
         local entry = probe_menu_entry(mod, key)
@@ -152,7 +217,7 @@ function M.resolve(key, method)
             }
         end
     end
-    if type(mod[method]) ~= "function" then return nil end
+    if not is_callable(mod[method]) then return nil end
     return function()
         return mod[method](mod)
     end
