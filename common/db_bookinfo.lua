@@ -24,7 +24,7 @@ end
 -- Each book appears under every author it has (multi-author support).
 function M.getGroupedByAuthor()
     if not bimOk then
-        logger.warn("zen-ui automatic_series_grouping: BookInfoManager not available")
+        logger.warn("zen-ui getGroupedByAuthor: BookInfoManager not available")
         return {}
     end
     BookInfoManager:openDbConnection()
