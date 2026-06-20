@@ -9,6 +9,13 @@
 --   file=nil means render via KOReader icon name; otherwise use the absolute path.
 
 local function showIconPickerDialog(icons_list, current_icon, on_select)
+    local function displayName(item)
+        return (item.name:gsub("^quick_", ""):gsub("^tab_", ""):gsub("^lookup_", ""))
+    end
+    table.sort(icons_list, function(a, b)
+        return displayName(a):lower() < displayName(b):lower()
+    end)
+
     local _          = require("gettext")
     local Screen     = require("device").screen
     local Geom       = require("ui/geometry")

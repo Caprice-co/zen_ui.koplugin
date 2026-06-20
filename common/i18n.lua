@@ -172,9 +172,10 @@ local function install()
     local mt = getmetatable(GetText)
     if mt and type(mt.__index) == "table" then
         local mt_index = mt.__index
-        _orig_changeLang = mt_index.changeLang
+        local orig_changeLang = mt_index.changeLang
+        _orig_changeLang = orig_changeLang
         mt_index.changeLang = function(new_lang)
-            local result = _orig_changeLang(new_lang)
+            local result = orig_changeLang(new_lang)
             if result == false then
                 logger.warn("zen-ui i18n: changeLang failed for lang=" .. (new_lang or "nil"))
             end

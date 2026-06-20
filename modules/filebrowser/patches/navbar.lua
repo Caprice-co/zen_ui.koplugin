@@ -1117,10 +1117,14 @@ local function apply_navbar()
         -- so inject navbar via nextTick from here. Hide-pagination doesn't
         -- apply to these views so there's no ordering conflict.
         local nexttick_tab_id = standalone_nexttick_tab_ids[self.name]
-        if nexttick_tab_id then
+        if nexttick_tab_id and not self._zen_standalone_navbar_pending
+                and not self._zen_standalone_navbar_injected then
+            self._zen_standalone_navbar_pending = true
             local menu = self
             UIManager:nextTick(function()
+                menu._zen_standalone_navbar_pending = nil
                 injectStandaloneNavbar(menu, nexttick_tab_id)
+                UIManager:setDirty(menu, "ui")
             end)
         end
     end
@@ -1514,6 +1518,7 @@ local function apply_navbar()
 
     injectStandaloneNavbar = function(menu, view_tab_id)
         if not menu or not menu[1] then return end
+        if menu._zen_standalone_navbar_injected then return end
         _G.__ZEN_UI_ACTIVE_TAB_LABEL = tabs_by_id[view_tab_id] and tabs_by_id[view_tab_id].label or view_tab_id
         preventStandaloneSwipeClose(menu)
         if not is_navbar_enabled() then
@@ -1533,6 +1538,7 @@ local function apply_navbar()
         active_tab = saved_active
 
         if not navbar then return end
+        menu._zen_standalone_navbar_injected = true
 
         -- Override tap handler for standalone view context
         navbar.onTapNavBar = function(self_nb, _, ges)
@@ -1644,11 +1650,30 @@ local function apply_navbar()
                     body_widget.inner_dimen.w = screen_w - 2 * (menu.border_size or 0)
                     body_widget.inner_dimen.h = body_h
                 end
+                local content_widget = body_widget[1]
+                if type(content_widget) == "table" then
+                    if content_widget.dimen then
+                        content_widget.dimen.w = menu.inner_dimen.w
+                        content_widget.dimen.h = menu.inner_dimen.h
+                    end
+                    for i = 1, #content_widget do
+                        local child = content_widget[i]
+                        if type(child) == "table" and child.dimen then
+                            child.dimen.w = menu.inner_dimen.w
+                            child.dimen.h = menu.inner_dimen.h
+                        end
+                    end
+                end
                 if body_widget.resetLayout then body_widget:resetLayout() end
+            end
+            if menu.name == "library_view" and type(menu.updateItems) == "function"
+                    and menu.item_group and menu.content_group then
+                menu:updateItems(menu.itemnumber)
             end
             if vg.resetLayout then vg:resetLayout() end
             if menu[1] and menu[1].resetLayout then menu[1]:resetLayout() end
         end
+        resizeStandaloneBody(menu._zen_navbar_height)
         local reopenStandaloneAfterResize
         menu._zen_reinject_navbar = function()
             local saved_active_local = active_tab
