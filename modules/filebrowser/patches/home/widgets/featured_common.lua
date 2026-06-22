@@ -116,12 +116,18 @@ local function build_progress_text(book, pct, progress_meta)
     progress_meta = type(progress_meta) == "table" and progress_meta or {}
     local left = {}
     local right = {}
-    local total_pages = tonumber(book.pages)
-    local current_page = tonumber(book.current_page)
+    local total_pages = tonumber(book.stable_pages) or tonumber(book.pages)
+    local current_page = tonumber(book.stable_current_page) or tonumber(book.current_page)
+    local stable_current_label = type(book.stable_current_label) == "string"
+        and book.stable_current_label ~= "" and book.stable_current_label or nil
+    local stable_last_label = type(book.stable_last_label) == "string"
+        and book.stable_last_label ~= "" and book.stable_last_label or nil
+    local current_label = stable_current_label or (current_page and tostring(current_page))
+    local total_label = stable_last_label or (total_pages and tostring(total_pages))
     local time_left = fmt_duration(book.time_left_secs)
     local entries = {
         total_pages = total_pages and zen_utils.formatPageCount(total_pages, true) or "",
-        current_total = total_pages and current_page and (tostring(current_page) .. " / " .. tostring(total_pages)) or "",
+        current_total = total_label and current_label and (tostring(current_label) .. " / " .. tostring(total_label)) or "",
         percent = tostring(pct) .. "%",
         time_left = time_left ~= "" and string.format(_("%s left"), time_left) or "",
     }
@@ -225,7 +231,11 @@ function M.build(ctx, source_key)
     local status_gap = status_h > 0 and math.max(1, math.floor(col_h * 0.015)) or 0
 
     -- Progress bar anchored to bottom of right column
-    local pct = math.floor((book.percent or 0) * 100 + 0.5)
+    local progress_percent = book.percent
+    if book.stable_current_page and book.stable_pages and book.stable_pages > 0 then
+        progress_percent = book.stable_current_page / book.stable_pages
+    end
+    local pct = math.floor((progress_percent or 0) * 100 + 0.5)
     local left_progress_text, right_progress_text = build_progress_text(book, pct, module_cfg.progress_meta)
     local has_progress_text = left_progress_text ~= "" or right_progress_text ~= ""
     local progress_h = math.max(1, math.floor(height * 0.022))
@@ -248,12 +258,12 @@ function M.build(ctx, source_key)
                 align = "center",
                 lw,
                 HorizontalSpan:new{ width = tgap },
-                render_progress(book.percent, bar_w, progress_h),
+                render_progress(progress_percent, bar_w, progress_h),
                 HorizontalSpan:new{ width = tgap },
                 rw,
             }
         else
-            progress_row = render_progress(book.percent, text_w, progress_h)
+            progress_row = render_progress(progress_percent, text_w, progress_h)
         end
     end
     local bottom_h = progress_row and bar_h or 0

@@ -381,6 +381,46 @@ local function apply_page_browser()
         local ZenIconButton   = require("common/ui/zen_icon_button")
         local logger          = require("logger")
 
+        local function get_page_display_text(pbw, page_num)
+            local fallback = tostring(page_num)
+            local pagemap = pbw.ui and pbw.ui.pagemap
+            local labels = pbw.page_labels
+            if not (pagemap and type(pagemap.wantsPageLabels) == "function"
+                and pagemap:wantsPageLabels()
+                and type(labels) == "table" and #labels > 0) then
+                return fallback
+            end
+
+            if pbw._zen_page_label_source ~= labels then
+                pbw._zen_page_label_source = labels
+                pbw._zen_page_label_text_cache = {}
+            end
+            local cache = pbw._zen_page_label_text_cache
+            if cache[page_num] then
+                return cache[page_num]
+            end
+
+            local lo, hi, best = 1, #labels, nil
+            while lo <= hi do
+                local mid = math.floor((lo + hi) / 2)
+                local item = labels[mid]
+                if item and item.page and item.page <= page_num then
+                    best = item
+                    lo = mid + 1
+                else
+                    hi = mid - 1
+                end
+            end
+
+            local text = best and best.label
+            if text and type(pagemap.cleanPageLabel) == "function" then
+                text = pagemap:cleanPageLabel(text)
+            end
+            text = text and tostring(text) or fallback
+            cache[page_num] = text
+            return text
+        end
+
         -- ----------------------------------------------------------------
         -- 1. Patch init: blank title, X to left, 3 icons on right
         -- ----------------------------------------------------------------
@@ -951,7 +991,7 @@ local function apply_page_browser()
 
                         if page_num >= 1 and page_num <= np then
                             local lbl = TextWidget:new{
-                                text    = tostring(page_num),
+                                text    = get_page_display_text(pbw, page_num),
                                 face    = badge_face_s,
                                 fgcolor = fg_color_s,
                                 padding = 0,
@@ -1412,6 +1452,8 @@ local function apply_page_browser()
             -- _orig_update writes BookMapRow into self.row (detached CenterContainer)
             local t0 = os.clock()
             _orig_update(self)
+            self._zen_page_label_text_cache = nil
+            self._zen_page_label_source = nil
             logger.dbg("ZenUI PBW update: _orig_update took "..(os.clock()-t0).."s")
 
             -- Clean up any page num widgets that slipped through (e.g. async tiles).
@@ -1547,7 +1589,7 @@ local function apply_page_browser()
                         end
 
                         local label = TextWidget:new{
-                            text    = tostring(page_num),
+                            text    = get_page_display_text(self, page_num),
                             face    = badge_face,
                             fgcolor = fg_color,
                             padding = 0,

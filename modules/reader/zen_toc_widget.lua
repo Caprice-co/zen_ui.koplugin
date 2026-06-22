@@ -64,21 +64,18 @@ local function normalize_title(s)
     return s
 end
 
--- ---------------------------------------------------------------------------
--- Captured once by page_browser.lua while __ZEN_UI_PLUGIN is still set.
-local _plugin_ref = nil
-
--- Read scroll-bar style from config (live, no restart needed).
--- ---------------------------------------------------------------------------
-local function get_style()
-    local p = _plugin_ref or rawget(_G, "__ZEN_UI_PLUGIN")
-    if p
-        and type(p.config) == "table"
-        and type(p.config.zen_scroll_bar) == "table"
-    then
-        return p.config.zen_scroll_bar.style or "dots"
+local function get_toc_page_label(ui, entry, fallback_page)
+    local pagemap = ui and ui.pagemap
+    if pagemap and type(pagemap.wantsPageLabels) == "function"
+        and pagemap:wantsPageLabels()
+        and entry and entry.xpointer
+        and type(pagemap.getXPointerPageLabel) == "function" then
+        local label = pagemap:getXPointerPageLabel(entry.xpointer)
+        if label then
+            return tostring(label)
+        end
     end
-    return "dots"
+    return tostring(fallback_page)
 end
 
 -- ---------------------------------------------------------------------------
@@ -101,7 +98,7 @@ function ZenTocWidget:init()
     local raw = (self.ui and self.ui.toc and self.ui.toc.toc) or {}
     local entries = {}
     local page_to_idx = {}
-    for _, e in ipairs(raw) do
+    for _i, e in ipairs(raw) do
         local pg    = e.page or 1
         local depth = e.depth or 1
         if depth <= 3 then
@@ -120,9 +117,10 @@ function ZenTocWidget:init()
             else
                 page_to_idx[pg] = #entries + 1
                 table.insert(entries, {
-                    title = title,
-                    page  = pg,
-                    depth = depth,
+                    title      = title,
+                    page       = pg,
+                    page_label = get_toc_page_label(self.ui, e, pg),
+                    depth      = depth,
                 })
             end
         end
@@ -138,7 +136,6 @@ function ZenTocWidget:init()
     local TITLE_H     = Screen:scaleBySize(50)
     local SEP_H       = 1
     local ROW_H       = Screen:scaleBySize(48)
-    local BAR_H       = Screen:scaleBySize(5)
     local BAR_PAD_V   = Screen:scaleBySize(7)
     local DOT_DIAM    = Screen:scaleBySize(10)
     local DOT_GAP     = Screen:scaleBySize(12)
@@ -147,10 +144,9 @@ function ZenTocWidget:init()
     local max_list_h_full = sh - TITLE_H - SEP_H
     local per_page_full   = math.max(1, math.floor(max_list_h_full / ROW_H))
 
-    -- Only add a scrollbar when entries overflow one screenful.
-    -- Height must accommodate the larger of bar and dots so live style toggle works.
+    -- Only add dot pagination when entries overflow one screenful.
     local needs_bar   = #entries > per_page_full
-    local SCROLLBAR_H = needs_bar and (math.max(BAR_H, DOT_DIAM) + BAR_PAD_V * 2) or 0
+    local SCROLLBAR_H = needs_bar and (DOT_DIAM + BAR_PAD_V * 2) or 0
 
     local max_list_h = max_list_h_full - SCROLLBAR_H
     local per_page   = math.max(1, math.floor(max_list_h / ROW_H))
@@ -175,7 +171,7 @@ function ZenTocWidget:init()
         title_h = TITLE_H, sep_h   = SEP_H,
         row_h   = ROW_H,   per_page = per_page,
         list_h  = list_h,  list_y   = LIST_Y,
-        bar_h   = BAR_H,   bar_pad_v = BAR_PAD_V,
+        bar_pad_v = BAR_PAD_V,
         dot_diam = DOT_DIAM, dot_gap = DOT_GAP,
         scrollbar_h = SCROLLBAR_H,
         close_x = CLOSE_X, close_y = CLOSE_Y,
@@ -311,7 +307,7 @@ function ZenTocWidget:paintTo(bb, x, y)
             local text_x = mx + L.pad + indent
 
             -- Page number (right-aligned)
-            local page_str = tostring(e.page)
+            local page_str = e.page_label or tostring(e.page)
             local pface    = Font:getFace("cfont", 16)
             local pn_tw    = TextWidget:new{
                 text    = page_str,
@@ -353,36 +349,24 @@ function ZenTocWidget:paintTo(bb, x, y)
         local bar_w = math.floor(L.modal_w * 0.78)
         local bar_x = mx + math.floor((L.modal_w - bar_w) / 2)
 
-        if get_style() == "dots" then
-            local diam = L.dot_diam
-            local gap  = L.dot_gap
-            local step = diam + gap
-            local nb   = self._nb_pages
+        local diam = L.dot_diam
+        local gap  = L.dot_gap
+        local step = diam + gap
+        local nb   = self._nb_pages
 
-            if step * nb - gap > bar_w then
-                step = math.max(2, math.floor(bar_w / nb))
-                diam = math.max(1, step - 1)
-            end
+        if step * nb - gap > bar_w then
+            step = math.max(2, math.floor(bar_w / nb))
+            diam = math.max(1, step - 1)
+        end
 
-            local total_w = step * (nb - 1) + diam
-            local start_x = bar_x + math.floor((bar_w - total_w) / 2)
-            local dot_y   = scrollbar_top + math.floor((L.scrollbar_h - diam) / 2)
+        local total_w = step * (nb - 1) + diam
+        local start_x = bar_x + math.floor((bar_w - total_w) / 2)
+        local dot_y   = scrollbar_top + math.floor((L.scrollbar_h - diam) / 2)
 
-            for i = 1, nb do
-                local dot_x = start_x + (i - 1) * step
-                local color = (i == self._toc_page) and Blitbuffer.COLOR_BLACK or Blitbuffer.COLOR_DARK_GRAY
-                paintPill(bb, dot_x, dot_y, diam, diam, color)
-            end
-        else
-            local by = scrollbar_top + math.floor((L.scrollbar_h - L.bar_h) / 2)
-            paintPill(bb, bar_x, by, bar_w, L.bar_h, Blitbuffer.COLOR_LIGHT_GRAY)
-
-            local thumb_w = math.max(L.bar_h * 2, math.floor(bar_w / self._nb_pages))
-            thumb_w       = math.min(thumb_w, bar_w)
-            local travel  = bar_w - thumb_w
-            local pct     = (self._toc_page - 1) / (self._nb_pages - 1)
-            local thumb_x = bar_x + math.floor(pct * travel)
-            paintPill(bb, thumb_x, by, thumb_w, L.bar_h, Blitbuffer.COLOR_BLACK)
+        for i = 1, nb do
+            local dot_x = start_x + (i - 1) * step
+            local color = (i == self._toc_page) and Blitbuffer.COLOR_BLACK or Blitbuffer.COLOR_DARK_GRAY
+            paintPill(bb, dot_x, dot_y, diam, diam, color)
         end
     end
 end
@@ -477,8 +461,6 @@ function ZenTocWidget:onShow()
     end)
 end
 
-function ZenTocWidget.set_plugin(plugin)
-    _plugin_ref = plugin
-end
+function ZenTocWidget.set_plugin() end
 
 return ZenTocWidget

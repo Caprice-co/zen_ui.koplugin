@@ -41,9 +41,18 @@ end
 local function get_home_book_cache_key(path)
     local ok_lfs, lfs = pcall(require, "libs/libkoreader-lfs")
     local file_mtime = ok_lfs and lfs.attributes(path, "modification") or 0
+    local sidecar_mtime = 0
+    local ok_ds, DocSettings = pcall(require, "docsettings")
+    if ok_lfs and ok_ds and DocSettings and type(DocSettings.findSidecarFile) == "function" then
+        local ok_sidecar, sidecar_file = pcall(DocSettings.findSidecarFile, DocSettings, path)
+        if ok_sidecar and sidecar_file then
+            sidecar_mtime = lfs.attributes(sidecar_file, "modification") or 0
+        end
+    end
     return table.concat({
         path,
         tostring(file_mtime or 0),
+        tostring(sidecar_mtime or 0),
     }, "|")
 end
 
@@ -608,6 +617,10 @@ local function build_data_provider(cfg, dcfg)
         local status = nil
         local current_page = nil
         local time_left_secs = nil
+        local stable_pages = nil
+        local stable_current_page = nil
+        local stable_current_label = nil
+        local stable_last_label = nil
         local ok_ds, DocSettings = pcall(require, "docsettings")
         if ok_ds and DocSettings and DocSettings:hasSidecarFile(path) then
             local ok_doc, doc = pcall(DocSettings.open, DocSettings, path)
@@ -635,6 +648,20 @@ local function build_data_provider(cfg, dcfg)
                 if avg_time and avg_time > 0 and total_pages and current_page and current_page < total_pages then
                     time_left_secs = math.floor((total_pages - current_page) * avg_time)
                 end
+                if doc:readSetting("pagemap_use_page_labels") == true then
+                    stable_current_label = doc:readSetting("pagemap_current_page_label")
+                    stable_last_label = doc:readSetting("pagemap_last_page_label")
+                    stable_pages = tonumber(doc:readSetting("pagemap_doc_pages"))
+                        or tonumber(stable_last_label)
+                    stable_current_page = tonumber(stable_current_label)
+                    if not stable_current_page and stable_pages and pct then
+                        stable_current_page = math.floor(stable_pages * pct + 0.5)
+                    end
+                    if stable_current_page and stable_pages then
+                        if pct and pct > 0 and stable_current_page < 1 then stable_current_page = 1 end
+                        if stable_current_page > stable_pages then stable_current_page = stable_pages end
+                    end
+                end
             end
         end
 
@@ -652,6 +679,10 @@ local function build_data_provider(cfg, dcfg)
             pages = pages,
             current_page = current_page,
             time_left_secs = time_left_secs,
+            stable_pages = stable_pages,
+            stable_current_page = stable_current_page,
+            stable_current_label = stable_current_label,
+            stable_last_label = stable_last_label,
             description = description,
         }
         cache_home_book(cache_key, book)
