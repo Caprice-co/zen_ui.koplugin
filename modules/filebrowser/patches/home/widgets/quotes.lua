@@ -141,8 +141,11 @@ return {
             if not tap_self.dimen:contains(ges.pos) then
                 return false
             end
-            if ctx.data.nextQuote then
-                ctx.data:nextQuote()
+            local prev_zone = tap_self.dimen.x + math.floor(tap_self.dimen.w * 0.35)
+            if ges.pos.x < prev_zone then
+                if ctx.data.prevQuote then ctx.data:prevQuote() end
+            else
+                if ctx.data.nextQuote then ctx.data:nextQuote() end
             end
             return true
         end

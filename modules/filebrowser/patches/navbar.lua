@@ -20,6 +20,7 @@ local function apply_navbar()
     local utils = require("common/utils")
     local paths = require("common/paths")
     local SharedState = require("common/shared_state")
+    local PluginScan = require("modules/menu/app_launcher/plugin_scan")
     local Screen = Device.screen
     local _ = require("gettext")
     local lfs = require("libs/libkoreader-lfs")
@@ -48,9 +49,18 @@ local function apply_navbar()
 
     local navbar_icon_size = Screen:scaleBySize(34)
     local navbar_v_padding = Screen:scaleBySize(4)
+    local navbar_icon_size_default = 34
+    local navbar_label_size_default = 20
+    local navbar_icon_size_min, navbar_icon_size_max = 24, 48
+    local navbar_label_size_min, navbar_label_size_max = 10, 28
     -- Dead zone at left/right edges to avoid stealing corner gesture taps
     local corner_dead_zone = math.floor(Screen:getWidth() / 20)
     local underline_thickness = Screen:scaleBySize(2)
+
+    local function clampNavbarSize(value, min_value, max_value, default_value)
+        value = math.floor((tonumber(value) or default_value) + 0.5)
+        return math.max(min_value, math.min(max_value, value))
+    end
 
     -- === Persistent config ===
 
@@ -79,6 +89,8 @@ local function apply_navbar()
         tab_order = { "page_left", "books", "manga", "news", "continue", "authors", "series", "tags", "to_be_read", "home", "history", "favorites", "collections", "stats", "search", "calibre_search", "exit", "page_right", "menu" },
         show_icons = true,
         show_labels = true,
+        icon_size = navbar_icon_size_default,
+        label_size = navbar_label_size_default,
         books_label = "",  -- empty = auto-translated "Library"
         home_label = "Home",
         default_tab = "books",
@@ -88,8 +100,6 @@ local function apply_navbar()
         news_folder = "",
         colored = false,
         active_tab_color = {0x33, 0x99, 0xFF}, -- blue
-        active_tab_styling = true,
-        active_tab_bold = true,
         active_tab_underline = true,
         underline_above = false,
         show_top_border = false,
@@ -123,6 +133,16 @@ local function apply_navbar()
                 end
             end
         end
+        config.icon_size = clampNavbarSize(
+            config.icon_size,
+            navbar_icon_size_min,
+            navbar_icon_size_max,
+            navbar_icon_size_default)
+        config.label_size = clampNavbarSize(
+            config.label_size,
+            navbar_label_size_min,
+            navbar_label_size_max,
+            navbar_label_size_default)
         -- Add custom tab IDs to tab_order if not already present
         if type(config.custom_tabs) == "table" then
             local ct_order_set = {}
@@ -619,6 +639,24 @@ local function apply_navbar()
         home = true,
     }
 
+    local active_tab_whitelist = {
+        books = true,
+        manga = true,
+        news = true,
+        authors = true,
+        series = true,
+        tags = true,
+        to_be_read = true,
+        home = true,
+        history = true,
+        favorites = true,
+        collections = true,
+    }
+
+    local function shouldTrackActiveTab(tab_id)
+        return active_tab_whitelist[tab_id] == true
+    end
+
     local function is_tab_enabled(tab_id)
         if tab_id:sub(1, 3) == "ct_" then
             return config.show_tabs[tab_id] == true
@@ -659,15 +697,36 @@ local function apply_navbar()
         return first_enabled_default_tab()
     end
 
+    local function runTabCallback(tab_id)
+        local cb = tab_callbacks[tab_id]
+        if not cb then return end
+        if shouldTrackActiveTab(tab_id) then
+            cb()
+            return
+        end
+        local saved_active = active_tab
+        cb()
+        if active_tab ~= saved_active then
+            active_tab = saved_active
+            syncActiveTabLabel()
+            local fm = FileManager.instance
+            if fm then injectNavbar(fm); UIManager:setDirty(fm, "full") end
+        end
+    end
+
     local function open_default_tab()
         local tab_id = resolve_default_tab()
-        setActiveTab(tab_id)
-        local cb = tab_callbacks[tab_id]
-        if cb then cb() end
+        if shouldTrackActiveTab(tab_id) then
+            setActiveTab(tab_id)
+        end
+        runTabCallback(tab_id)
         return tab_id
     end
 
-    active_tab = resolve_default_tab()
+    do
+        local default_tab = resolve_default_tab()
+        active_tab = shouldTrackActiveTab(default_tab) and default_tab or "books"
+    end
     syncActiveTabLabel()
 
     -- Custom tabs are synced dynamically in createNavBar() so they appear immediately
@@ -756,14 +815,24 @@ local function apply_navbar()
 
     local navbar_font_size_steps = {20, 18, 16, 14}
 
+    local function buildFontSizeSteps(base_size)
+        local steps = {}
+        for i = 0, 3 do
+            local size = math.max(8, base_size - i * 2)
+            if steps[#steps] ~= size then
+                steps[#steps + 1] = size
+            end
+        end
+        return steps
+    end
+
     -- Returns the largest size from navbar_font_size_steps where every label fits within max_w.
-    -- Uses the bold face as the worst-case width so all tabs stay at the same size.
     local function getSharedFontSize(labels, max_w)
         for _i, size in ipairs(navbar_font_size_steps) do
             local face = library_font.getFace(size)
             local all_fit = true
             for _j, text in ipairs(labels) do
-                local probe = TextWidget:new{ text = text, face = face, bold = true }
+                local probe = TextWidget:new{ text = text, face = face }
                 local fits = probe:getSize().w <= max_w
                 probe:free()
                 if not fits then all_fit = false; break end
@@ -774,7 +843,7 @@ local function apply_navbar()
     end
 
     local function createTabWidget(tab, label_max_w, is_active, font_size, is_focused)
-        local styled = is_active and config.active_tab_styling
+        local styled = is_active
         local use_color = styled and config.colored and Screen:isColorScreen()
         local active_color
         if use_color then
@@ -783,8 +852,6 @@ local function apply_navbar()
                 active_color = Blitbuffer.ColorRGB32(c[1], c[2], c[3], 0xFF)
             end
         end
-
-        local use_bold = styled and config.active_tab_bold
 
         local show_icon = config.show_icons ~= false
         local show_label = config.show_labels == true or not show_icon
@@ -817,7 +884,6 @@ local function apply_navbar()
             label = ColorTextWidget:new{
                 text = tab.label,
                 face = label_face,
-                bold = use_bold,
                 max_width = label_max_w,
                 fgcolor = active_color,
             }
@@ -825,7 +891,6 @@ local function apply_navbar()
             label = TextWidget:new{
                 text = tab.label,
                 face = label_face,
-                bold = use_bold,
                 max_width = label_max_w,
             }
         end
@@ -938,13 +1003,13 @@ local function apply_navbar()
         local ft = zen_plugin.config and zen_plugin.config.features
         if type(ft) == "table" and ft.lockdown_mode == true
                 and type(lc) == "table" and lc.magnify_ui == true then
-            navbar_icon_size       = Screen:scaleBySize(43)   -- 34 * 1.25
-            navbar_v_padding       = Screen:scaleBySize(5)    -- 4  * 1.25
-            navbar_font_size_steps = {25, 23, 20, 18}         -- {20,18,16,14} * 1.25
+            navbar_icon_size       = Screen:scaleBySize(math.floor(config.icon_size * 1.25 + 0.5))
+            navbar_v_padding       = Screen:scaleBySize(5)    -- 4 * 1.25
+            navbar_font_size_steps = buildFontSizeSteps(math.floor(config.label_size * 1.25 + 0.5))
         else
-            navbar_icon_size       = Screen:scaleBySize(34)
+            navbar_icon_size       = Screen:scaleBySize(config.icon_size)
             navbar_v_padding       = Screen:scaleBySize(4)
-            navbar_font_size_steps = {20, 18, 16, 14}
+            navbar_font_size_steps = buildFontSizeSteps(config.label_size)
         end
 
         -- Update books tab label from config
@@ -963,9 +1028,17 @@ local function apply_navbar()
                         table.insert(tabs, entry)
                         tabs_by_id[ct.id] = entry
                     end
-                    entry.label = (ct.label ~= nil and ct.label ~= "") and ct.label or _("Custom")
+                    entry.label = (ct.label ~= nil and ct.label ~= "") and ct.label
+                        or ct.plugin_title
+                        or _("Custom")
                     entry.icon  = ct.icon or "zen_ui"
-                    if ok_disp_ct and ct.action and next(ct.action) then
+                    if ct.type == "plugin" and type(ct.plugin) == "table" then
+                        local plugin = ct.plugin
+                        tab_callbacks[ct.id] = function()
+                            local launch = PluginScan.resolve(plugin.key, plugin.method)
+                            if launch then pcall(launch) end
+                        end
+                    elseif ok_disp_ct and ct.action and next(ct.action) then
                         local action = ct.action
                         tab_callbacks[ct.id] = function() Dispatcher_ct:execute(action) end
                     else
@@ -1082,18 +1155,9 @@ local function apply_navbar()
                 end
             end
             local tapped_id = visible_tabs[idx].id
-            local cb = tab_callbacks[tapped_id]
-            if cb then cb() end
-            -- Track active tab for all persistent views (not transient: search/stats/exit/continue/menu/page_*)
-            -- Custom tabs (ct_ prefix) are always tracked so they get the active underline styling.
-            local track_tab = tapped_id == "books" or tapped_id == "manga"
-                or tapped_id == "news"      or tapped_id == "authors"
-                or tapped_id == "series"    or tapped_id == "tags"
-                or tapped_id == "to_be_read"
-                or tapped_id == "home"
-                or tapped_id == "history"   or tapped_id == "favorites"
-                or tapped_id == "collections"
-                or tapped_id:sub(1, 3) == "ct_"
+            runTabCallback(tapped_id)
+            -- Track active tab for persistent views only, not launcher/action tabs.
+            local track_tab = shouldTrackActiveTab(tapped_id)
             if track_tab and tapped_id ~= active_tab then
                 active_tab = tapped_id
                 syncActiveTabLabel()
@@ -1101,7 +1165,6 @@ local function apply_navbar()
                 local stays_in_browser = tapped_id == "books"
                     or (tapped_id == "manga" and config.manga_action == "folder" and config.manga_folder ~= "")
                     or (tapped_id == "news" and config.news_action == "folder" and config.news_folder ~= "")
-                    or tapped_id:sub(1, 3) == "ct_"
                 if stays_in_browser then
                     local fm = FileManager.instance
                     if fm then injectNavbar(fm); UIManager:setDirty(fm, "full") end
@@ -1370,13 +1433,7 @@ local function apply_navbar()
             local tab = vis_tabs and vis_tabs[idx]
             if not tab then return end
             local tid = tab.id
-            local track = tid == "books" or tid == "manga"
-                or tid == "news"    or tid == "authors"
-                or tid == "series"  or tid == "tags"
-                or tid == "to_be_read"
-                or tid == "home"
-                or tid == "history" or tid == "favorites"
-                or tid == "collections"
+            local track = shouldTrackActiveTab(tid)
             if track and tid ~= active_tab then
                 active_tab = tid
                 syncActiveTabLabel()
@@ -1388,8 +1445,7 @@ local function apply_navbar()
                     if fm2 then injectNavbar(fm2); UIManager:setDirty(fm2, "full") end
                 end
             end
-            local cb = tab_callbacks[tid]
-            if cb then cb() end
+            runTabCallback(tid)
         end
 
         -- Focus the navbar at the active tab, starting from the given key direction.
@@ -1667,11 +1723,15 @@ local function apply_navbar()
                 return true
             end
 
+            if not shouldTrackActiveTab(tapped_id) then
+                runTabCallback(tapped_id)
+                return true
+            end
+
             -- Close this standalone view first
             if tapped_id == "books" then
                 setActiveTab(tapped_id)
-                local cb = tab_callbacks[tapped_id]
-                if cb then cb() end
+                runTabCallback(tapped_id)
                 UIManager:close(menu)
                 if menu._zen_close_stack then menu._zen_close_stack() end
                 return true
@@ -1689,12 +1749,13 @@ local function apply_navbar()
                 menu._zen_close_stack()
             end
 
-            -- Update FM navbar active tab
-            setActiveTab(tapped_id)
+            -- Update FM navbar active tab only for persistent views.
+            if shouldTrackActiveTab(tapped_id) then
+                setActiveTab(tapped_id)
+            end
 
             -- Execute the tapped tab's callback
-            local cb = tab_callbacks[tapped_id]
-            if cb then cb() end
+            runTabCallback(tapped_id)
 
             return true
         end
@@ -1814,8 +1875,7 @@ local function apply_navbar()
             if menu._zen_close_stack then menu._zen_close_stack() end
             UIManager:nextTick(function()
                 setActiveTab(view_tab_id)
-                local cb = tab_callbacks[view_tab_id]
-                if cb then cb() end
+                runTabCallback(view_tab_id)
             end)
             return false
         end
@@ -1903,10 +1963,13 @@ local function apply_navbar()
                 if tapped_id == view_tab_id then
                     menu.page = 1; menu:updateItems(); return
                 end
+                if not shouldTrackActiveTab(tapped_id) then
+                    runTabCallback(tapped_id)
+                    return
+                end
                 if tapped_id == "books" then
                     setActiveTab(tapped_id)
-                    local cb = tab_callbacks[tapped_id]
-                    if cb then cb() end
+                    runTabCallback(tapped_id)
                     UIManager:close(menu)
                     if menu._zen_close_stack then menu._zen_close_stack() end
                     return
@@ -1915,9 +1978,10 @@ local function apply_navbar()
                 elseif menu.onClose then menu:onClose()
                 else UIManager:close(menu) end
                 if menu._zen_close_stack then menu._zen_close_stack() end
-                setActiveTab(tapped_id)
-                local cb = tab_callbacks[tapped_id]
-                if cb then cb() end
+                if shouldTrackActiveTab(tapped_id) then
+                    setActiveTab(tapped_id)
+                end
+                runTabCallback(tapped_id)
             end
 
             local function moveStandaloneNavbar(m, dx, dy)
@@ -2331,10 +2395,15 @@ local function apply_navbar()
                 local idx = tapIndexForTab(tap_x, tab_w_local, #vis_tabs)
                 local tapped_id = vis_tabs[idx].id
                 if tapped_id == "news" then return true end
+                if not shouldTrackActiveTab(tapped_id) then
+                    runTabCallback(tapped_id)
+                    return true
+                end
                 self:onClose()
-                setActiveTab(tapped_id)
-                local cb = tab_callbacks[tapped_id]
-                if cb then cb() end
+                if shouldTrackActiveTab(tapped_id) then
+                    setActiveTab(tapped_id)
+                end
+                runTabCallback(tapped_id)
                 return true
             end
 

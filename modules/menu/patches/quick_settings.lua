@@ -21,6 +21,7 @@ local function apply_quick_settings()
     local VerticalGroup = require("ui/widget/verticalgroup")
     local VerticalSpan = require("ui/widget/verticalspan")
     local utils = require("common/utils")
+    local shutdown = require("common/shutdown")
     local SharedState = require("common/shared_state")
     local build_brightness_slider = require("modules/menu/patches/brightness_slider")
     local build_warmth_slider     = require("modules/menu/patches/warmth_slider")
@@ -67,10 +68,12 @@ local function apply_quick_settings()
     -- ============================================================
 
     local config_default = {
-        button_order = { "wifi", "night", "rotate", "zen", "lockdown", "usb", "search", "quickrss", "cloud", "zlibrary", "calibre", "calibre_search", "notion", "streak", "opds", "localsend", "filebrowser", "puzzle", "crossword", "connections", "chess", "casualchess", "stats_progress", "stats_calendar", "battery_stats", "kosync", "restart", "exit", "sleep", "screenshot" },
+        button_order = { "wifi", "night", "frontlight", "gyro", "rotate", "zen", "lockdown", "usb", "search", "quickrss", "cloud", "zlibrary", "calibre", "calibre_search", "notion", "streak", "opds", "localsend", "filebrowser", "puzzle", "crossword", "connections", "chess", "casualchess", "stats_progress", "stats_calendar", "battery_stats", "kosync", "restart", "exit", "sleep", "screenshot" },
         show_buttons = {
             wifi = true,
             night = true,
+            frontlight = false,
+            gyro = false,
             rotate = true,
             zen = true,
             lockdown = false,
@@ -312,6 +315,52 @@ local function apply_quick_settings()
                 UIManager:setDirty("all", "full")
             end,
         },
+        frontlight = {
+            icon = "lightbulb",
+            label = _("Light"),
+            visible_func = function() return Device:hasFrontlight() end,
+            active_func = function()
+                local powerd = Device:getPowerDevice()
+                if powerd and powerd.isFrontlightOn then
+                    return powerd:isFrontlightOn()
+                end
+                return powerd and powerd.frontlightIntensity
+                    and powerd:frontlightIntensity() > (powerd.fl_min or 0)
+            end,
+            callback = function(touch_menu)
+                local powerd = Device:getPowerDevice()
+                if not powerd then return end
+                if powerd.isFrontlightOn and powerd:isFrontlightOn() then
+                    if powerd.turnOffFrontlight then
+                        powerd:turnOffFrontlight()
+                    elseif powerd.setIntensity then
+                        powerd:setIntensity(powerd.fl_min or 0)
+                    end
+                else
+                    local target = powerd.fl_intensity
+                    if type(target) ~= "number" or target <= (powerd.fl_min or 0) then
+                        target = math.min(powerd.fl_max or 1, (powerd.fl_min or 0) + 1)
+                    end
+                    local turned_on = powerd.turnOnFrontlight and powerd:turnOnFrontlight()
+                    if (not powerd.turnOnFrontlight or turned_on == false) and powerd.setIntensity then
+                        powerd:setIntensity(target)
+                    end
+                end
+                touch_menu:updateItems(1)
+            end,
+        },
+        gyro = {
+            icon = "gyro",
+            label = _("Gyro"),
+            visible_func = function() return Device:hasGSensor() end,
+            active_func = function()
+                return G_reader_settings:nilOrFalse("input_ignore_gsensor")
+            end,
+            callback = function(touch_menu)
+                UIManager:broadcastEvent(Event:new("ToggleGSensor"))
+                touch_menu:updateItems(1)
+            end,
+        },
         rotate = {
             icon = "quick_rotate",
             label = _("Rotate"),
@@ -358,7 +407,7 @@ local function apply_quick_settings()
                     text = _("Are you sure you want to exit KOReader?"),
                     ok_text = _("Exit"),
                     ok_callback = function()
-                        UIManager:broadcastEvent(Event:new("Exit"))
+                        shutdown.broadcastExit(zen_plugin)
                     end,
                 })
             end,

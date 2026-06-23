@@ -995,8 +995,19 @@ local function apply_status_bar()
     }
 
     local function suppresses_status_bar(widget)
-        return widget and (widget._zen_home_show_status_bar == false
-            or rakuyomi_view_names[widget.name] == true)
+        if not widget then return false end
+        if rakuyomi_view_names[widget.name] == true then return true end
+        if widget._zen_home_show_status_bar == false then
+            -- Home page without a top status bar. Still allow event-driven
+            -- refresh of an embedded featured status bar (or other clock-refresh
+            -- widgets) so its Wi-Fi/battery indicators update on toggle.
+            if widget._zen_home_refresh_clock_widgets
+                    and widget._zen_home_has_clock_refreshers then
+                return false
+            end
+            return true
+        end
+        return false
     end
 
     local function is_status_suppressed_on_top()
@@ -1018,6 +1029,12 @@ local function apply_status_bar()
         elseif top_widget and top_widget._zen_status_refresh then
             if clock_tick and top_widget._zen_status_clock_bound then return end
             top_widget._zen_status_refresh(top_widget)
+        elseif top_widget and top_widget._zen_home_refresh_clock_widgets then
+            -- Featured embedded status bar: no _zen_status_refresh, refreshes via
+            -- its clock-widget refreshers instead. Skip clock ticks it handles
+            -- through its own heartbeat binding to avoid a double refresh.
+            if clock_tick and top_widget._zen_status_clock_bound then return end
+            top_widget:_zen_home_refresh_clock_widgets()
         end
     end
 

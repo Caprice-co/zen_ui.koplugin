@@ -581,7 +581,7 @@ function M.build(ctx)
         end
         sort_items = build_sort_items()
         ZenArrangeList.show{
-            title = parent and parent.label or _("Buttons"),
+            title = (parent and parent.label or _("Buttons")) .. " (" .. _("Hold to arrange") .. ")",
             item_table = sort_items,
             add_title = _("Add"),
             add_item_table = arrange_add_items(parent),

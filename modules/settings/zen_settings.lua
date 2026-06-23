@@ -16,6 +16,7 @@ local reader_section   = require("modules/settings/sections/reader_settings")
 local global_section   = require("modules/settings/sections/global_settings")
 local advanced_section = require("modules/settings/sections/advanced_settings")
 local about_section    = require("modules/settings/sections/about_settings")
+local shutdown         = require("common/shutdown")
 
 local M = {}
 
@@ -66,7 +67,7 @@ function M.build(plugin)
                 text = _("Are you sure you want to quit KOReader?"),
                 ok_text = _("Quit"),
                 ok_callback = function()
-                    UIManager:broadcastEvent(require("ui/event"):new("Exit"))
+                    shutdown.broadcastExit(plugin)
                 end,
             })
         end,
@@ -95,25 +96,33 @@ function M.build(plugin)
     })
 
     utils.reorder_nested_items_by_text({ navbar_item }, _("Navbar"), {
-        _("Tab settings"),
-        _("Styling"),
-        _("Show labels"),
-    })
-
-    utils.reorder_nested_items_by_text({ navbar_item }, _("Tab settings"), {
         _("Tabs") .. " \u{25B8}",
-        _("Custom tabs"),
+        _("Styling"),
+        _("Default tab: "),
     })
 
     utils.reorder_nested_items_by_text({ navbar_item }, _("Styling"), {
+        _("Labels"),
+        _("Icons"),
+        _("Active tab"),
         _("Show top border"),
-        _("Active tab styling"),
-        _("Bold active tab"),
-        _("Active tab underline"),
+    })
+
+    utils.reorder_nested_items_by_text({ navbar_item }, _("Active tab"), {
+        _("Underline"),
         _("Underline above icon"),
-        _("Colored active tab"),
+        _("Colored"),
         _("Active tab color"),
-        _("Refresh navbar"),
+    })
+
+    utils.reorder_nested_items_by_text({ navbar_item }, _("Labels"), {
+        _("Show labels"),
+        _("Label size:"),
+    })
+
+    utils.reorder_nested_items_by_text({ navbar_item }, _("Icons"), {
+        _("Show icons"),
+        _("Icon size:"),
     })
 
     -- -------------------------------------------------------------------------

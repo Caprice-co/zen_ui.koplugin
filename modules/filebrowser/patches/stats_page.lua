@@ -19,6 +19,7 @@ local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local VerticalSpan = require("ui/widget/verticalspan")
 local StandalonePage = require("modules/filebrowser/patches/standalone_page")
+local SharedState = require("common/shared_state")
 local Screen = Device.screen
 local _ = require("gettext")
 
@@ -80,6 +81,7 @@ local StatsDB       = require("common/db_stats")
 local LibraryDB     = require("common/db_library")
 local BookInfoDB    = require("common/db_bookinfo")
 local ConfigManager = require("config/manager")
+local active_stats_menus = {}
 
 local MAX_ROWS = 5
 
@@ -108,13 +110,13 @@ local function loadRowsConfig()
     local defaults = { "today", "this_month", "this_year", "all_time", "library" }
     -- build a lookup for valid types
     local valid = {}
-    for _, rt in ipairs(ALL_ROW_TYPES) do valid[rt] = true end
+    for _i, rt in ipairs(ALL_ROW_TYPES) do valid[rt] = true end
 
     local ok, cfg = pcall(ConfigManager.load)
     if ok and type(cfg) == "table"
        and cfg.stats_page and type(cfg.stats_page.rows) == "table" then
         local rows = {}
-        for _, rt in ipairs(cfg.stats_page.rows) do
+        for _i, rt in ipairs(cfg.stats_page.rows) do
             if valid[rt] then
                 rows[#rows + 1] = rt
             end
@@ -123,8 +125,8 @@ local function loadRowsConfig()
         if #rows >= MAX_ROWS then return rows end
         -- backfill with defaults for any missing slots
         local used = {}
-        for _, rt in ipairs(rows) do used[rt] = true end
-        for _, rt in ipairs(defaults) do
+        for _i, rt in ipairs(rows) do used[rt] = true end
+        for _i, rt in ipairs(defaults) do
             if not used[rt] then
                 rows[#rows + 1] = rt
                 if #rows >= MAX_ROWS then break end
@@ -231,7 +233,7 @@ local function buildContent(sc, rows_config, stats, page_w, h_padding)
 
     local function makeRow(cards)
         local row_h = 0
-        for _, c in ipairs(cards) do
+        for _i, c in ipairs(cards) do
             local h = c:getSize().h
             if h > row_h then row_h = h end
         end
@@ -434,7 +436,7 @@ function StatsPage.create(createStatusRow, repaintTitleBar)
     local sc = 1.0
     local content, row_hits = buildContent(sc, rows_config, stats, page_w, h_padding)
     local content_h = content:getSize().h
-    for _ = 1, 3 do
+    for _i = 1, 3 do
         if content_h <= body_h then break end
         sc = sc * body_h / content_h
         content, row_hits = buildContent(sc, rows_config, stats, page_w, h_padding)
@@ -454,7 +456,7 @@ function StatsPage.create(createStatusRow, repaintTitleBar)
         local new_content, new_row_hits =
             buildContent(new_sc, rows_config, stats, page_w, h_padding)
         local new_h = new_content:getSize().h
-        for _ = 1, 3 do
+        for _i = 1, 3 do
             if new_h <= body_h then break end
             new_sc = new_sc * body_h / new_h
             new_content, new_row_hits =
@@ -478,10 +480,10 @@ function StatsPage.create(createStatusRow, repaintTitleBar)
     local function showRowChangeMenu(row_idx)
         local current_type = rows_config[row_idx]
         local used = {}
-        for _, rt in ipairs(rows_config) do used[rt] = true end
+        for _i, rt in ipairs(rows_config) do used[rt] = true end
 
         local buttons = {}
-        for _, type_id in ipairs(ALL_ROW_TYPES) do
+        for _i, type_id in ipairs(ALL_ROW_TYPES) do
             local is_current = type_id == current_type
             local is_taken   = used[type_id] and not is_current
             local tid = type_id
@@ -515,12 +517,12 @@ function StatsPage.create(createStatusRow, repaintTitleBar)
                               w = Screen:getWidth(), h = Screen:getHeight() },
         },
     }
-    function menu:onZenStatsHold(_, ges)
+    function menu:onZenStatsHold(_ges_event, ges)
         local offset_y  = self.dimen and self.dimen.y or 0
         local content_y = ges.pos.y - offset_y - tb_h
         if content_y < 0 then return false end  -- hold in title bar
 
-        for _, rp in ipairs(row_hits) do
+        for _i, rp in ipairs(row_hits) do
             if content_y >= rp.y_start and content_y < rp.y_end then
                 showRowChangeMenu(rp.row_idx)
                 return true
@@ -542,6 +544,24 @@ function StatsPage.create(createStatusRow, repaintTitleBar)
         UIManager:close(menu)
     end
 
+    active_stats_menus[#active_stats_menus + 1] = menu
+    local orig_onCloseWidget = menu.onCloseWidget
+    function menu:onCloseWidget(...)
+        for i = #active_stats_menus, 1, -1 do
+            if rawequal(active_stats_menus[i], self) then
+                table.remove(active_stats_menus, i)
+                break
+            end
+        end
+        if self._zen_row_dlg then
+            UIManager:close(self._zen_row_dlg)
+            self._zen_row_dlg = nil
+        end
+        if orig_onCloseWidget then
+            return orig_onCloseWidget(self, ...)
+        end
+    end
+
     -- Flash-refresh once after the widget is painted for the first time.
     UIManager:scheduleIn(0, function()
         UIManager:setDirty(menu, "flashui")
@@ -549,5 +569,26 @@ function StatsPage.create(createStatusRow, repaintTitleBar)
 
     return menu
 end
+
+function StatsPage.closeAll()
+    for i = #active_stats_menus, 1, -1 do
+        local menu = active_stats_menus[i]
+        if menu then
+            if menu._zen_row_dlg then
+                UIManager:close(menu._zen_row_dlg)
+                menu._zen_row_dlg = nil
+            end
+            UIManager:close(menu)
+        end
+        active_stats_menus[i] = nil
+    end
+end
+
+local function register_stats_api(zen_plugin)
+    if not zen_plugin or type(zen_plugin.config) ~= "table" then return end
+    SharedState.register(zen_plugin, { stats = StatsPage })
+end
+
+SharedState.registerLoader("stats", register_stats_api)
 
 return StatsPage

@@ -188,7 +188,6 @@ end
 
 function ZenScreen:paintTo(bb, x, y)
     local L = self._L
-    local use_scroll_text = type(self.scroll_text) == "string" and self.scroll_text ~= ""
 
     -- Measure changelog first so we know if the title bar needs an inline icon.
     local content_y = y + L.content_y
@@ -198,12 +197,19 @@ function ZenScreen:paintTo(bb, x, y)
     local SEP_PX    = Screen:scaleBySize(8)
     local HDR_GAP   = Screen:scaleBySize(6)
     local ITEM_GAP  = Screen:scaleBySize(4)
+    local MIN_LOGO  = Screen:scaleBySize(140)
 
-    local logo_h = (use_scroll_text or self.hide_logo) and 0 or content_h
     local item_widgets = {}
     local hdr_tw, hdr_h
+    local logo_h = self.hide_logo and 0 or content_h
 
-    if not use_scroll_text and self.changelog and #self.changelog > 0 then
+    -- Measure the changelog array (when present) to decide between the
+    -- logo+bullets layout and the scrollable fallback. The bullets fit
+    -- alongside a large centered logo only if the leftover logo space stays
+    -- above MIN_LOGO; otherwise we fall back to the scroll view.
+    local fits_with_logo = false
+    local candidate_logo_h = logo_h
+    if self.changelog and #self.changelog > 0 then
         hdr_tw = TextWidget:new{
             text    = _("What's New"),
             face    = Font:getFace("cfont", 18),
@@ -226,19 +232,35 @@ function ZenScreen:paintTo(bb, x, y)
         end
 
         local cl_total = 1 + SEP_PX + hdr_h + HDR_GAP + items_h + SEP_PX
-        logo_h = self.hide_logo and 0 or math.max(0, content_h - cl_total)
+        candidate_logo_h = self.hide_logo and 0 or math.max(0, content_h - cl_total)
+        local logo_candidate = math.floor(math.min(L.sw - L.pad * 2, candidate_logo_h - L.pad * 2))
+        fits_with_logo = self.hide_logo or logo_candidate >= MIN_LOGO
     end
 
-    local has_cl = hdr_tw ~= nil
+    -- Scroll view kicks in only when an explicit scroll_text was supplied and
+    -- the changelog won't fit beside the logo. Without scroll_text we keep the
+    -- legacy behavior: drop the big logo and let the bullets fill the content.
+    local has_scroll = type(self.scroll_text) == "string" and self.scroll_text ~= ""
+    local use_scroll_text = has_scroll and (hdr_tw == nil or not fits_with_logo)
+
     self._show_title_icon = false
-    if has_cl then
-        local min_logo_with_changelog = Screen:scaleBySize(140)
-        local logo_candidate = math.floor(math.min(L.sw - L.pad * 2, logo_h - L.pad * 2))
-        if logo_candidate < min_logo_with_changelog then
+    if use_scroll_text then
+        -- Discard the measured bullet widgets; the scroll view renders instead.
+        for _i, entry in ipairs(item_widgets) do entry.widget:free() end
+        item_widgets = {}
+        if hdr_tw then hdr_tw:free(); hdr_tw = nil end
+        logo_h = 0
+        self._show_title_icon = true  -- big logo hidden, brand via title bar
+    elseif hdr_tw ~= nil then
+        logo_h = candidate_logo_h
+        if not fits_with_logo then
+            -- No scroll fallback available: hide big logo, brand via title bar.
             logo_h = 0
             self._show_title_icon = true
         end
     end
+
+    local has_cl = hdr_tw ~= nil
 
     bb:paintRect(x, y, L.sw, L.sh, Blitbuffer.COLOR_WHITE)
 

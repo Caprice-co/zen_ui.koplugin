@@ -1,20 +1,23 @@
 -- settings/sections/library/navbar.lua
 -- Navbar settings item for Zen UI.
 -- Returns a single menu-item table: { text = _("Navbar"), sub_item_table = {...} }
--- Receives ctx: { config, save_and_apply, apply_feature, settings_apply }
+-- Receives ctx: { config, save_and_apply, settings_apply }
 
 local _ = require("gettext")
 local T = require("ffi/util").template
 local UIManager = require("ui/uimanager")
 local utils = require("modules/settings/zen_settings_utils")
 local paths = require("common/paths")
+local icons = require("common/inline_icon_map")
+local IconItem = require("common/ui/icon_menu_item")
+local PluginScan = require("modules/menu/app_launcher/plugin_scan")
 
 local M = {}
 
 function M.build(ctx)
     local config        = ctx.config
     local save_and_apply = ctx.save_and_apply
-    local apply_feature  = ctx.apply_feature
+    local settings_apply = ctx.settings_apply
 
     -- Defer reinject to next event loop tick so the menu's post-callback
     -- redraws complete first, then the navbar repaints correctly.
@@ -55,8 +58,7 @@ function M.build(ctx)
         end
     end
 
-    local function save_and_defer_navbar_refresh()
-        ctx.plugin:saveConfig()
+    local function queue_deferred_navbar_refresh()
         pending_navbar_refresh = true
         if not pending_navbar_poll_active then
             pending_navbar_poll_active = true
@@ -64,13 +66,53 @@ function M.build(ctx)
         end
     end
 
+    local function save_and_defer_navbar_refresh()
+        ctx.plugin:saveConfig()
+        queue_deferred_navbar_refresh()
+    end
+
     local function save_and_reinit_navbar()
         save_and_defer_navbar_refresh()
+    end
+
+    local function save_and_reflow_navbar()
+        ctx.plugin:saveConfig()
+        if settings_apply and settings_apply.reinit_filemanager_on_menu_close then
+            settings_apply.reinit_filemanager_on_menu_close()
+        else
+            save_and_reinit_navbar()
+        end
+        queue_deferred_navbar_refresh()
     end
 
     if type(config.navbar.default_tab) ~= "string" or config.navbar.default_tab == "" then
         config.navbar.default_tab = "books"
     end
+
+    local navbar_icon_size_default = 34
+    local navbar_label_size_default = 20
+    local navbar_icon_size_min, navbar_icon_size_max = 24, 48
+    local navbar_label_size_min, navbar_label_size_max = 10, 28
+
+    local function clamp_navbar_size(value, min_value, max_value, default_value)
+        value = math.floor((tonumber(value) or default_value) + 0.5)
+        return math.max(min_value, math.min(max_value, value))
+    end
+
+    local function ensure_navbar_sizes()
+        config.navbar.icon_size = clamp_navbar_size(
+            config.navbar.icon_size,
+            navbar_icon_size_min,
+            navbar_icon_size_max,
+            navbar_icon_size_default)
+        config.navbar.label_size = clamp_navbar_size(
+            config.navbar.label_size,
+            navbar_label_size_min,
+            navbar_label_size_max,
+            navbar_label_size_default)
+    end
+
+    ensure_navbar_sizes()
 
     -- -------------------------------------------------------------------------
     -- Color helpers
@@ -242,14 +284,213 @@ function M.build(ctx)
     -- -------------------------------------------------------------------------
 
     local ok_disp, Dispatcher = pcall(require, "dispatcher")
+    local build_ct_sub_items
+
+    local function is_draft_tab(ct)
+        return type(ct) == "table" and type(ct._zen_draft_commit) == "function"
+    end
 
     local function get_ct_label(ct)
         if ct.label and ct.label ~= "" then return ct.label end
+        if ct.type == "plugin" then
+            return ct.plugin_title or _("Plugin")
+        end
         if ok_disp and ct.action and next(ct.action) then
             local t = Dispatcher:menuTextFunc(ct.action)
             if t ~= _("Nothing") then return t end
         end
         return _("Custom")
+    end
+
+    local function sync_ct_action_label(ct)
+        if ct.type ~= "action" then return end
+        local current = ct.label or ""
+        local custom_prefix = _("Custom") .. " "
+        local is_legacy_auto_label = current == _("Custom")
+            or current == _("Action")
+            or (current:sub(1, #custom_prefix) == custom_prefix
+                and tonumber(current:sub(#custom_prefix + 1)) ~= nil)
+        if ct.label_auto == true or current == "" or is_legacy_auto_label then
+            ct.label = get_ct_label({
+                type = ct.type,
+                action = ct.action,
+                label = nil,
+            })
+            ct.label_auto = true
+        end
+    end
+
+    local function ensureTabOrder(id)
+        for _i, ordered_id in ipairs(config.navbar.tab_order) do
+            if ordered_id == id then return end
+        end
+        local inserted = false
+        for i, ordered_id in ipairs(config.navbar.tab_order) do
+            if ordered_id == "page_right" or ordered_id == "menu" then
+                table.insert(config.navbar.tab_order, i, id)
+                inserted = true
+                break
+            end
+        end
+        if not inserted then
+            table.insert(config.navbar.tab_order, id)
+        end
+    end
+
+    local function commitCustomTab(ct)
+        if type(config.navbar.custom_tabs) ~= "table" then
+            config.navbar.custom_tabs = {}
+        end
+        config.navbar.next_custom_id = (config.navbar.next_custom_id or 0) + 1
+        ct.id = "ct_" .. config.navbar.next_custom_id
+        ct._zen_draft_commit = nil
+        table.insert(config.navbar.custom_tabs, ct)
+        config.navbar.show_tabs[ct.id] = countEnabledTabs() < navbar_max_tabs
+        ensureTabOrder(ct.id)
+        save_and_defer_navbar_refresh()
+    end
+
+    local function openCustomTabSettings(touch_menu, ct)
+        if not (touch_menu and type(touch_menu.updateItems) == "function" and ct) then
+            return
+        end
+        table.insert(touch_menu.item_table_stack, touch_menu.item_table)
+        touch_menu.parent_id = nil
+        touch_menu.item_table = build_ct_sub_items(ct)
+        touch_menu:updateItems(1)
+    end
+
+    local function wrap_dispatch_callbacks(items, caller, on_update)
+        if type(items) ~= "table" then return end
+        for _i, item in ipairs(items) do
+            if type(item.callback) == "function" and not item._zen_nav_dispatch_wrapped then
+                local orig_callback = item.callback
+                item.callback = function(touch_menu, ...)
+                    caller.updated = false
+                    local result = orig_callback(touch_menu, ...)
+                    if caller.updated then
+                        caller.updated = false
+                        on_update(touch_menu)
+                    end
+                    return result
+                end
+                item._zen_nav_dispatch_wrapped = true
+            end
+            if type(item.hold_callback) == "function" and not item._zen_nav_dispatch_hold_wrapped then
+                local orig_hold_callback = item.hold_callback
+                item.hold_callback = function(touch_menu, ...)
+                    caller.updated = false
+                    local result = orig_hold_callback(touch_menu, ...)
+                    if caller.updated then
+                        caller.updated = false
+                        on_update(touch_menu)
+                    end
+                    return result
+                end
+                item._zen_nav_dispatch_hold_wrapped = true
+            end
+            if type(item.sub_item_table_func) == "function" and not item._zen_nav_dispatch_func_wrapped then
+                local orig_sub_item_table_func = item.sub_item_table_func
+                item.sub_item_table_func = function(...)
+                    local sub_items = orig_sub_item_table_func(...)
+                    wrap_dispatch_callbacks(sub_items, caller, on_update)
+                    return sub_items
+                end
+                item._zen_nav_dispatch_func_wrapped = true
+            end
+            wrap_dispatch_callbacks(item.sub_item_table, caller, on_update)
+        end
+    end
+
+    local function showPluginPicker(on_select)
+        local found = PluginScan.scan()
+        if #found == 0 then
+            local InfoMessage = require("ui/widget/infomessage")
+            UIManager:show(InfoMessage:new{ text = _("No launchable plugin menus found") })
+            return
+        end
+        local picker_items = {}
+        for _i, plugin in ipairs(found) do
+            picker_items[#picker_items + 1] = {
+                text = plugin.title,
+                plugin = plugin,
+            }
+        end
+        require("common/ui/zen_menu_picker"){
+            title = _("Choose plugin menu"),
+            items = picker_items,
+            on_select = on_select,
+        }
+    end
+
+    local function choosePluginTab(ct, touch_menu)
+        showPluginPicker(function(item)
+            local plugin = item.plugin
+            if not plugin then return end
+            ct.type = "plugin"
+            ct.plugin_title = plugin.title
+            ct.plugin = { key = plugin.key, method = plugin.method }
+            if not ct.label or ct.label == "" or ct.label == _("Plugin") then
+                ct.label = plugin.title
+            end
+            if not ct.icon or ct.icon == "zen_ui" then
+                ct.icon = "lightning"
+            end
+            if not is_draft_tab(ct) then
+                save_and_defer_navbar_refresh()
+            end
+            if touch_menu and touch_menu.updateItems then
+                touch_menu:updateItems(1)
+            end
+        end)
+    end
+
+    local function addActionTab(touch_menu)
+        if not ok_disp then return end
+        local taken = {}
+        if type(config.navbar.custom_tabs) == "table" then
+            for _i, ct in ipairs(config.navbar.custom_tabs) do
+                local lbl = (ct.label and ct.label ~= "") and ct.label or _("Custom")
+                taken[lbl] = true
+            end
+        end
+        local default_label
+        if taken[_("Custom")] then
+            local n = 2
+            while taken[_("Custom") .. " " .. n] do n = n + 1 end
+            default_label = _("Custom") .. " " .. n
+        end
+        local new_ct = {
+            type = "action",
+            label = default_label,
+            label_auto = true,
+            icon = "zen_ui",
+            action = {},
+        }
+        local committed = false
+        new_ct._zen_draft_commit = function()
+            if committed or not (new_ct.action and next(new_ct.action)) then return end
+            sync_ct_action_label(new_ct)
+            commitCustomTab(new_ct)
+            committed = true
+        end
+        openCustomTabSettings(touch_menu, new_ct)
+    end
+
+    local function addPluginTab(touch_menu)
+        showPluginPicker(function(item)
+            local plugin = item.plugin
+            if not plugin then return end
+            local new_ct = {
+                type = "plugin",
+                label = plugin.title,
+                plugin_title = plugin.title,
+                icon = "lightning",
+                plugin = { key = plugin.key, method = plugin.method },
+            }
+            commitCustomTab(new_ct)
+            openCustomTabSettings(touch_menu, new_ct)
+        end)
     end
 
     local CUSTOM_TAB_ICONS
@@ -267,39 +508,35 @@ function M.build(ctx)
         _icon_picker(getCustomTabIcons(), ct.icon, on_select)
     end
 
-    local build_ct_sub_items  -- forward decl
     build_ct_sub_items = function(ct)
         local items = {}
 
-        table.insert(items, {
-            text = _("Show in navbar"),
-            separator = true,
-            checked_func = function() return config.navbar.show_tabs[ct.id] ~= false end,
-            enabled_func = function()
-                return config.navbar.show_tabs[ct.id] ~= false
-                    or countEnabledTabs() < navbar_max_tabs
-            end,
-            callback = function()
-                local cur = config.navbar.show_tabs[ct.id]
-                config.navbar.show_tabs[ct.id] = (cur == false)
-                save_and_defer_navbar_refresh()
-            end,
-        })
-
-        if ok_disp then
-            local dispatch_items = {}
-            local caller = setmetatable({}, {
-                __newindex = function(t, k, v)
-                    if k == "updated" and v then
-                        save_and_apply("navbar")
-                    else
-                        rawset(t, k, v)
-                    end
+        if ct.type == "plugin" then
+            table.insert(items, IconItem.decorate({
+                text_func = function()
+                    return T(_("Plugin: %1"), ct.plugin_title or ct.label or _("(none)"))
                 end,
-                __index = function() return nil end,
-            })
+                keep_menu_open = true,
+                callback = function(touch_menu)
+                    choosePluginTab(ct, touch_menu)
+                end,
+            }, icons.plugin))
+        elseif ok_disp then
+            local dispatch_items = {}
+            local caller = {}
             Dispatcher:addSubMenu(caller, dispatch_items, ct, "action")
-            table.insert(items, {
+            wrap_dispatch_callbacks(dispatch_items, caller, function(touch_menu)
+                sync_ct_action_label(ct)
+                if is_draft_tab(ct) then
+                    ct._zen_draft_commit()
+                else
+                    save_and_defer_navbar_refresh()
+                end
+                if touch_menu and touch_menu.updateItems then
+                    touch_menu:updateItems(1)
+                end
+            end)
+            table.insert(items, IconItem.decorate({
                 text_func = function()
                     if ct.action and next(ct.action) then
                         return T(_("Action: %1"), Dispatcher:menuTextFunc(ct.action))
@@ -308,10 +545,10 @@ function M.build(ctx)
                 end,
                 keep_menu_open = true,
                 sub_item_table = dispatch_items,
-            })
+            }, icons.action))
         end
 
-        table.insert(items, {
+        table.insert(items, IconItem.decorate({
             text_func = function()
                 return T(_("Icon: %1"), ct.icon or "zen_ui")
             end,
@@ -319,19 +556,21 @@ function M.build(ctx)
             callback = function(tm)
                 showTabIconPicker(ct, function(name)
                     ct.icon = name
-                    save_and_apply("navbar")
+                    if not is_draft_tab(ct) then
+                        save_and_defer_navbar_refresh()
+                    end
                     if tm and tm.updateItems then tm:updateItems(1) end
                 end)
             end,
-        })
+        }, icons.icon))
 
-        table.insert(items, {
+        table.insert(items, IconItem.decorate({
             text_func = function()
                 local lbl = (ct.label and ct.label ~= "") and ct.label or _("(auto)")
                 return T(_("Label: %1"), lbl)
             end,
             keep_menu_open = true,
-            callback = function()
+            callback = function(touch_menu)
                 local InputDialog = require("ui/widget/inputdialog")
                 local dialog
                 dialog = InputDialog:new{
@@ -345,43 +584,323 @@ function M.build(ctx)
                             is_enter_default = true,
                             callback = function()
                                 local txt = dialog:getInputText()
-                                ct.label = (txt and txt ~= "") and txt or nil
+                                if txt and txt ~= "" then
+                                    ct.label = txt
+                                    ct.label_auto = false
+                                else
+                                    ct.label = nil
+                                    ct.label_auto = true
+                                    sync_ct_action_label(ct)
+                                end
                                 UIManager:close(dialog)
-                                save_and_apply("navbar")
+                                if not is_draft_tab(ct) then
+                                    save_and_defer_navbar_refresh()
+                                end
+                                if touch_menu and touch_menu.updateItems then
+                                    touch_menu:updateItems(1)
+                                end
                             end,
                         },
                     }},
                 }
                 UIManager:show(dialog)
             end,
-        })
+        }, icons.label))
 
-        table.insert(items, {
-            text = _("Remove this tab"),
+        table.insert(items, IconItem.decorate({
+            text = _("Delete"),
             separator = true,
             keep_menu_open = true,
             callback = function(touch_menu)
-                local cts = config.navbar.custom_tabs
-                for i, item in ipairs(cts) do
-                    if item.id == ct.id then table.remove(cts, i); break end
+                if is_draft_tab(ct) then
+                    if touch_menu then touch_menu:backToUpperMenu() end
+                    return
                 end
-                config.navbar.show_tabs[ct.id] = nil
-                local new_order = {}
-                for _i, id in ipairs(config.navbar.tab_order) do
-                    if id ~= ct.id then new_order[#new_order + 1] = id end
+                local ConfirmBox = require("ui/widget/confirmbox")
+                local function remove()
+                    local cts = config.navbar.custom_tabs
+                    for i, item in ipairs(cts) do
+                        if item.id == ct.id then
+                            table.remove(cts, i)
+                            break
+                        end
+                    end
+                    config.navbar.show_tabs[ct.id] = nil
+                    local new_order = {}
+                    for _i, id in ipairs(config.navbar.tab_order) do
+                        if id ~= ct.id then new_order[#new_order + 1] = id end
+                    end
+                    config.navbar.tab_order = new_order
+                    save_and_defer_navbar_refresh()
+                    if touch_menu then touch_menu:backToUpperMenu() end
                 end
-                config.navbar.tab_order = new_order
-                save_and_apply("navbar")
-                if touch_menu then touch_menu:backToUpperMenu() end
+                UIManager:show(ConfirmBox:new{
+                    text = _("Delete this tab?"),
+                    ok_text = _("Delete"),
+                    ok_callback = remove,
+                })
             end,
-        })
+        }, icons.delete))
 
         return items
     end
 
+    local function build_default_tab_items()
+        local items = {}
+        for _i, tab_id in ipairs(default_tab_ids) do
+            local tid = tab_id
+            local label = get_default_tab_label(tid)
+            items[#items + 1] = {
+                text = label,
+                radio = true,
+                checked_func = function()
+                    return (config.navbar.default_tab or "books") == tid
+                end,
+                callback = function()
+                    config.navbar.default_tab = tid
+                    save_and_apply_navbar()
+                end,
+            }
+        end
+        if type(config.navbar.custom_tabs) == "table" then
+            for _i, ct in ipairs(config.navbar.custom_tabs) do
+                local tid = ct.id
+                local label = get_default_tab_label(tid)
+                items[#items + 1] = {
+                    text = label,
+                    radio = true,
+                    checked_func = function()
+                        return (config.navbar.default_tab or "books") == tid
+                    end,
+                    callback = function()
+                        config.navbar.default_tab = tid
+                        save_and_apply_navbar()
+                    end,
+                }
+            end
+        end
+        return items
+    end
+
+    local function build_home_tab_items()
+        return {
+            {
+                text_func = function()
+                    local label = config.navbar.home_label
+                    if label == nil or label == "" then label = "Home" end
+                    return _("Label: ") .. label
+                end,
+                keep_menu_open = true,
+                callback = function(touch_menu)
+                    local InputDialog = require("ui/widget/inputdialog")
+                    local dialog
+                    dialog = InputDialog:new{
+                        title = _("Home tab label"),
+                        input = config.navbar.home_label or "Home",
+                        input_hint = _("Default: Home"),
+                        buttons = {{
+                            { text = _("Cancel"), callback = function() UIManager:close(dialog) end },
+                            {
+                                text = _("Set"),
+                                is_enter_default = true,
+                                callback = function()
+                                    local text = dialog:getInputText()
+                                    config.navbar.home_label = (text and text ~= "") and text or "Home"
+                                    UIManager:close(dialog)
+                                    save_and_apply_navbar()
+                                    if touch_menu and touch_menu.updateItems then touch_menu:updateItems() end
+                                end,
+                            },
+                        }},
+                    }
+                    UIManager:show(dialog)
+                end,
+            },
+        }
+    end
+
+    local function build_books_tab_items()
+        local presets = { [""] = true, Books = true, Home = true, Library = true }
+        return {
+            {
+                text = _("Books"),
+                checked_func = function() return config.navbar.books_label == "Books" end,
+                callback = function()
+                    config.navbar.books_label = "Books"
+                    save_and_apply_navbar()
+                end,
+            },
+            {
+                text = _("Home"),
+                checked_func = function() return config.navbar.books_label == "Home" end,
+                callback = function()
+                    config.navbar.books_label = "Home"
+                    save_and_apply_navbar()
+                end,
+            },
+            {
+                text = _("Library"),
+                checked_func = function()
+                    local label = config.navbar.books_label
+                    return label == nil or label == "" or label == "Library"
+                end,
+                callback = function()
+                    config.navbar.books_label = ""
+                    save_and_apply_navbar()
+                end,
+            },
+            {
+                text_func = function()
+                    local label = config.navbar.books_label or ""
+                    if presets[label] then return _("Custom") end
+                    return _("Custom: ") .. label
+                end,
+                checked_func = function()
+                    return not presets[config.navbar.books_label or ""]
+                end,
+                keep_menu_open = true,
+                callback = function(touch_menu)
+                    local InputDialog = require("ui/widget/inputdialog")
+                    local dialog
+                    dialog = InputDialog:new{
+                        title = _("Books tab label"),
+                        input = config.navbar.books_label or "",
+                        buttons = {{
+                            { text = _("Cancel"), callback = function() UIManager:close(dialog) end },
+                            {
+                                text = _("Set"),
+                                is_enter_default = true,
+                                callback = function()
+                                    local text = dialog:getInputText()
+                                    config.navbar.books_label = text ~= "" and text or "Books"
+                                    UIManager:close(dialog)
+                                    save_and_apply_navbar()
+                                    if touch_menu and touch_menu.updateItems then touch_menu:updateItems() end
+                                end,
+                            },
+                        }},
+                    }
+                    UIManager:show(dialog)
+                    dialog:onShowKeyboard()
+                end,
+            },
+        }
+    end
+
+    local function folder_label(path, fallback)
+        if path and path ~= "" then
+            local util = require("util")
+            local folder_name = select(2, util.splitFilePathName(path))
+            return fallback .. ": " .. folder_name
+        end
+        return fallback
+    end
+
+    local function build_folder_presets(action_key, folder_key)
+        return {
+            text = _("Folder presets"),
+            sub_item_table = {
+                {
+                    text = _("Use home folder"),
+                    callback = function()
+                        config.navbar[action_key] = "folder"
+                        config.navbar[folder_key] = paths.getHomeDir()
+                        save_and_apply_navbar()
+                    end,
+                },
+                {
+                    text = _("Use last folder"),
+                    callback = function()
+                        config.navbar[action_key] = "folder"
+                        config.navbar[folder_key] = utils.get_last_dir()
+                        save_and_apply_navbar()
+                    end,
+                },
+                {
+                    text = _("Use current folder"),
+                    callback = function()
+                        config.navbar[action_key] = "folder"
+                        config.navbar[folder_key] = utils.get_current_dir()
+                        save_and_apply_navbar()
+                    end,
+                },
+            },
+        }
+    end
+
+    local function build_folder_action_item(action_key, folder_key)
+        return {
+            text_func = function()
+                if config.navbar[action_key] == "folder" then
+                    return folder_label(config.navbar[folder_key], _("Open folder"))
+                end
+                return _("Open folder")
+            end,
+            checked_func = function() return config.navbar[action_key] == "folder" end,
+            keep_menu_open = true,
+            callback = function(touch_menu)
+                local PathChooser = require("ui/widget/pathchooser")
+                local start_path = config.navbar[folder_key] ~= "" and config.navbar[folder_key]
+                    or G_reader_settings:readSetting("lastdir") or "/"
+                UIManager:show(PathChooser:new{
+                    select_file = false,
+                    show_files = false,
+                    path = start_path,
+                    onConfirm = function(dir_path)
+                        config.navbar[action_key] = "folder"
+                        config.navbar[folder_key] = dir_path
+                        save_and_apply_navbar()
+                        if touch_menu and touch_menu.updateItems then touch_menu:updateItems() end
+                    end,
+                })
+            end,
+        }
+    end
+
+    local function build_manga_tab_items()
+        return {
+            {
+                text = _("Open Rakuyomi"),
+                checked_func = function() return config.navbar.manga_action ~= "folder" end,
+                callback = function()
+                    config.navbar.manga_action = "rakuyomi"
+                    save_and_apply_navbar()
+                end,
+            },
+            build_folder_action_item("manga_action", "manga_folder"),
+            build_folder_presets("manga_action", "manga_folder"),
+        }
+    end
+
+    local function build_news_tab_items()
+        return {
+            {
+                text = _("Open QuickRSS"),
+                checked_func = function()
+                    return config.navbar.news_action ~= "folder"
+                        and config.navbar.news_action ~= "rssreader"
+                end,
+                callback = function()
+                    config.navbar.news_action = "quickrss"
+                    save_and_apply_navbar()
+                end,
+            },
+            {
+                text = _("Open RSS Reader"),
+                checked_func = function() return config.navbar.news_action == "rssreader" end,
+                callback = function()
+                    config.navbar.news_action = "rssreader"
+                    save_and_apply_navbar()
+                end,
+            },
+            build_folder_action_item("news_action", "news_folder"),
+            build_folder_presets("news_action", "news_folder"),
+        }
+    end
+
     local function showTabsArrange()
         local ZenArrangeList = require("common/ui/zen_arrange_list")
-        local sort_items = {}
+        local sort_items
 
         local function updateDimStates()
             for _i, sort_item in ipairs(sort_items) do
@@ -393,7 +912,7 @@ function M.build(ctx)
             local tab = tab_item_by_id[id]
             local ct = getCustomTabById(id)
             if not tab and not ct then return false end
-            table.insert(sort_items, {
+            local item = {
                 text_func = function()
                     if ct then return get_ct_label(ct) end
                     return get_tab_item_text(tab)
@@ -408,32 +927,70 @@ function M.build(ctx)
                         updateDimStates()
                     end
                 end,
-            })
+            }
+            if ct then
+                item.sub_title = get_ct_label(ct)
+                item.sub_item_table_func = function()
+                    return build_ct_sub_items(ct)
+                end
+            elseif id == "home" then
+                item.sub_title = _("Home")
+                item.sub_item_table_func = build_home_tab_items
+            elseif id == "books" then
+                item.sub_title = _("Books")
+                item.sub_item_table_func = build_books_tab_items
+            elseif id == "manga" then
+                item.sub_title = _("Manga")
+                item.sub_item_table_func = build_manga_tab_items
+            elseif id == "news" then
+                item.sub_title = _("News")
+                item.sub_item_table_func = build_news_tab_items
+            end
+            table.insert(sort_items, item)
             return true
         end
 
-        local in_sort = {}
-        for _i, id in ipairs(config.navbar.tab_order) do
-            if not in_sort[id] and addTabItem(id) then
-                in_sort[id] = true
-            end
-        end
-        for _i, tab in ipairs(navbar_tab_items) do
-            if not in_sort[tab.id] and addTabItem(tab.id) then
-                in_sort[tab.id] = true
-            end
-        end
-        if type(config.navbar.custom_tabs) == "table" then
-            for _i, ct in ipairs(config.navbar.custom_tabs) do
-                if not in_sort[ct.id] and addTabItem(ct.id) then
-                    in_sort[ct.id] = true
+        local function build_sort_items()
+            sort_items = {}
+            local in_sort = {}
+            for _i, id in ipairs(config.navbar.tab_order) do
+                if not in_sort[id] and addTabItem(id) then
+                    in_sort[id] = true
                 end
             end
+            for _i, tab in ipairs(navbar_tab_items) do
+                if not in_sort[tab.id] and addTabItem(tab.id) then
+                    in_sort[tab.id] = true
+                end
+            end
+            if type(config.navbar.custom_tabs) == "table" then
+                for _i, ct in ipairs(config.navbar.custom_tabs) do
+                    if not in_sort[ct.id] and addTabItem(ct.id) then
+                        in_sort[ct.id] = true
+                    end
+                end
+            end
+            return sort_items
         end
+        sort_items = build_sort_items()
 
         ZenArrangeList.show{
-            title = _("Tabs"),
+            title = _("Tabs") .. " (" .. _("Hold to arrange") .. ")",
             item_table = sort_items,
+            add_title = _("Add"),
+            hide_footer_cancel = true,
+            add_item_table = {
+                IconItem.decorate({
+                    text = _("Action"),
+                    keep_menu_open = true,
+                    callback = addActionTab,
+                }, icons.action),
+                IconItem.decorate({
+                    text = _("Plugin"),
+                    keep_menu_open = true,
+                    callback = addPluginTab,
+                }, icons.plugin),
+            },
             callback = function()
                 local new_order = {}
                 local ordered = {}
@@ -447,6 +1004,7 @@ function M.build(ctx)
                 config.navbar.tab_order = new_order
                 save_and_defer_navbar_refresh()
             end,
+            refresh_func = build_sort_items,
         }
     end
 
@@ -458,526 +1016,181 @@ function M.build(ctx)
         text = _("Navbar"),
         sub_item_table = {
             {
-                text = _("Tab settings"),
-                sub_item_table = {
-                    {
-                        text = _("Tabs") .. " \u{25B8}",
-                        keep_menu_open = true,
-                        callback = showTabsArrange,
-                    },
-                    {
-                        text = _("Custom tabs"),
-                        keep_menu_open = true,
-                        sub_item_table_func = function()
-                            local function build()
-                                local items = {}
-                                table.insert(items, {
-                                    text = _("Add custom tab"),
-                                    keep_menu_open = true,
-                                    callback = function(touch_menu)
-                                        if type(config.navbar.custom_tabs) ~= "table" then
-                                            config.navbar.custom_tabs = {}
-                                        end
-                                        local cts = config.navbar.custom_tabs
-                                        config.navbar.next_custom_id =
-                                            (config.navbar.next_custom_id or 0) + 1
-                                        local new_ct = {
-                                            id     = "ct_" .. config.navbar.next_custom_id,
-                                            label  = nil,
-                                            icon   = "zen_ui",
-                                            action = {},
-                                        }
-                                        table.insert(cts, new_ct)
-                                        config.navbar.show_tabs[new_ct.id] =
-                                            countEnabledTabs() < navbar_max_tabs
-                                        -- Insert before page_right/menu in tab_order
-                                        local order = config.navbar.tab_order
-                                        local inserted = false
-                                        for i, id in ipairs(order) do
-                                            if id == "page_right" or id == "menu" then
-                                                table.insert(order, i, new_ct.id)
-                                                inserted = true
-                                                break
-                                            end
-                                        end
-                                        if not inserted then order[#order + 1] = new_ct.id end
-                                        save_and_apply("navbar")
-                                        local sub_items = build_ct_sub_items(new_ct)
-                                        if touch_menu and #sub_items > 0 then
-                                            table.insert(touch_menu.item_table_stack, touch_menu.item_table)
-                                            touch_menu.parent_id = nil
-                                            touch_menu.item_table = sub_items
-                                            touch_menu:updateItems(1)
-                                        end
-                                    end,
-                                })
-                                if type(config.navbar.custom_tabs) == "table" then
-                                    for _i, ct in ipairs(config.navbar.custom_tabs) do
-                                        local ct_ref = ct
-                                        table.insert(items, {
-                                            text_func = function() return get_ct_label(ct_ref) end,
-                                            keep_menu_open = true,
-                                            sub_item_table_func = function()
-                                                return build_ct_sub_items(ct_ref)
-                                            end,
-                                        })
-                                    end
-                                end
-                                items.needs_refresh = true
-                                items.refresh_func = build
-                                return items
-                            end
-                            return build()
-                        end,
-                    },
-                    {
-                        text_func = function()
-                            local current = config.navbar.default_tab or "books"
-                            return _("Default tab: ") .. get_default_tab_label(current)
-                        end,
-                        keep_menu_open = true,
-                        sub_item_table_func = function()
-                            local items = {}
-                            for i, tab_id in ipairs(default_tab_ids) do
-                                local tid = tab_id
-                                local label = get_default_tab_label(tid)
-                                items[#items + 1] = {
-                                    text = label,
-                                    radio = true,
-                                    checked_func = function()
-                                        return (config.navbar.default_tab or "books") == tid
-                                    end,
-                                    callback = function()
-                                        config.navbar.default_tab = tid
-                                        save_and_apply_navbar()
-                                    end,
-                                }
-                            end
-                            if type(config.navbar.custom_tabs) == "table" then
-                                for i, ct in ipairs(config.navbar.custom_tabs) do
-                                    local tid = ct.id
-                                    local label = get_default_tab_label(tid)
-                                    items[#items + 1] = {
-                                        text = label,
-                                        radio = true,
-                                        checked_func = function()
-                                            return (config.navbar.default_tab or "books") == tid
-                                        end,
-                                        callback = function()
-                                            config.navbar.default_tab = tid
-                                            save_and_apply_navbar()
-                                        end,
-                                    }
-                                end
-                            end
-                            return items
-                        end,
-                    },
-                    {
-                        text_func = function()
-                            local label = config.navbar.home_label
-                            if label == nil or label == "" then label = "Home" end
-                            return _("Home tab label: ") .. label
-                        end,
-                        separator = true,
-                        keep_menu_open = true,
-                        callback = function()
-                            local InputDialog = require("ui/widget/inputdialog")
-                            local dialog
-                            dialog = InputDialog:new{
-                                title = _("Home tab label"),
-                                input = config.navbar.home_label or "Home",
-                                input_hint = _("Default: Home"),
-                                buttons = {{
-                                    { text = _("Cancel"), callback = function() UIManager:close(dialog) end },
-                                    {
-                                        text = _("Set"),
-                                        is_enter_default = true,
-                                        callback = function()
-                                            local text = dialog:getInputText()
-                                            config.navbar.home_label = (text and text ~= "") and text or "Home"
-                                            UIManager:close(dialog)
-                                            save_and_apply_navbar()
-                                        end,
-                                    },
-                                }},
-                            }
-                            UIManager:show(dialog)
-                        end,
-                    },
-                    {
-                        text_func = function()
-                            local label = config.navbar.books_label
-                            if label == nil or label == "" then label = _("Library") end
-                            return _("Books tab label: ") .. label
-                        end,
-                        separator = true,
-                        sub_item_table = {
-                            {
-                                text = _("Books"),
-                                checked_func = function()
-                                    return config.navbar.books_label == "Books"
-                                end,
-                                callback = function()
-                                    config.navbar.books_label = "Books"
-                                    save_and_apply_navbar()
-                                end,
-                            },
-                            {
-                                text = _("Home"),
-                                checked_func = function() return config.navbar.books_label == "Home" end,
-                                callback = function()
-                                    config.navbar.books_label = "Home"
-                                    save_and_apply_navbar()
-                                end,
-                            },
-                            {
-                                text = _("Library"),
-                                checked_func = function()
-                                    local l = config.navbar.books_label
-                                    return l == nil or l == "" or l == "Library"
-                                end,
-                                callback = function()
-                                    config.navbar.books_label = ""
-                                    save_and_apply_navbar()
-                                end,
-                            },
-                            {
-                                text_func = function()
-                                    local label = config.navbar.books_label or ""
-                                    local presets = { [""] = true, Books = true, Home = true, Library = true }
-                                    if presets[label] then return _("Custom") end
-                                    return _("Custom: ") .. label
-                                end,
-                                checked_func = function()
-                                    local label = config.navbar.books_label or ""
-                                    local presets = { [""] = true, Books = true, Home = true, Library = true }
-                                    return not presets[label]
-                                end,
-                                keep_menu_open = true,
-                                callback = function(touchmenu_instance)
-                                    local InputDialog = require("ui/widget/inputdialog")
-                                    local dlg
-                                    dlg = InputDialog:new{
-                                        title = _("Books tab label"),
-                                        input = config.navbar.books_label or "",
-                                        buttons = {{
-                                            {
-                                                text = _("Cancel"),
-                                                id = "close",
-                                                callback = function() UIManager:close(dlg) end,
-                                            },
-                                            {
-                                                text = _("Set"),
-                                                is_enter_default = true,
-                                                callback = function()
-                                                    local text = dlg:getInputText()
-                                                    config.navbar.books_label = text ~= "" and text or "Books"
-                                                    UIManager:close(dlg)
-                                                    save_and_apply_navbar()
-                                                    if touchmenu_instance then
-                                                        touchmenu_instance:updateItems()
-                                                    end
-                                                end,
-                                            },
-                                        }},
-                                    }
-                                    UIManager:show(dlg)
-                                    dlg:onShowKeyboard()
-                                end,
-                            },
-                        },
-                    },
-                    {
-                        text_func = function()
-                            if config.navbar.manga_action == "folder" then
-                                return _("Manga tab action: ") .. _("Folder")
-                            end
-                            return _("Manga tab action: ") .. _("Rakuyomi")
-                        end,
-                        separator = true,
-                        sub_item_table = {
-                            {
-                                text = _("Open Rakuyomi"),
-                                checked_func = function() return config.navbar.manga_action ~= "folder" end,
-                                callback = function()
-                                    config.navbar.manga_action = "rakuyomi"
-                                    save_and_apply_navbar()
-                                end,
-                            },
-                            {
-                                text_func = function()
-                                    if config.navbar.manga_action == "folder" and config.navbar.manga_folder ~= "" then
-                                        local util = require("util")
-                                        local folder_name = select(2, util.splitFilePathName(config.navbar.manga_folder))
-                                        return _("Open folder: ") .. folder_name
-                                    end
-                                    return _("Open folder")
-                                end,
-                                checked_func = function() return config.navbar.manga_action == "folder" end,
-                                keep_menu_open = true,
-                                callback = function(touchmenu_instance)
-                                    local PathChooser = require("ui/widget/pathchooser")
-                                    local start_path = config.navbar.manga_folder ~= "" and config.navbar.manga_folder
-                                        or G_reader_settings:readSetting("lastdir") or "/"
-                                    local path_chooser = PathChooser:new{
-                                        select_file = false,
-                                        show_files = false,
-                                        path = start_path,
-                                        onConfirm = function(dir_path)
-                                            config.navbar.manga_action = "folder"
-                                            config.navbar.manga_folder = dir_path
-                                            save_and_apply_navbar()
-                                            if touchmenu_instance then
-                                                touchmenu_instance:updateItems()
-                                            end
-                                        end,
-                                    }
-                                    UIManager:show(path_chooser)
-                                end,
-                            },
-                            {
-                                text = _("Folder presets"),
-                                sub_item_table = {
-                                    {
-                                        text = _("Use home folder"),
-                                        callback = function()
-                                            config.navbar.manga_action = "folder"
-                                            config.navbar.manga_folder = paths.getHomeDir()
-                                            save_and_apply_navbar()
-                                        end,
-                                    },
-                                    {
-                                        text = _("Use last folder"),
-                                        callback = function()
-                                            config.navbar.manga_action = "folder"
-                                            config.navbar.manga_folder = utils.get_last_dir()
-                                            save_and_apply_navbar()
-                                        end,
-                                    },
-                                    {
-                                        text = _("Use current folder"),
-                                        callback = function()
-                                            config.navbar.manga_action = "folder"
-                                            config.navbar.manga_folder = utils.get_current_dir()
-                                            save_and_apply_navbar()
-                                        end,
-                                    },
-                                },
-                            },
-                        },
-                    },
-                    {
-                        text_func = function()
-                            if config.navbar.news_action == "folder" then
-                                return _("News tab action: ") .. _("Folder")
-                            elseif config.navbar.news_action == "rssreader" then
-                                return _("News tab action: ") .. _("RSS Reader")
-                            end
-                            return _("News tab action: ") .. _("QuickRSS")
-                        end,
-                        separator = true,
-                        sub_item_table = {
-                            {
-                                text = _("Open QuickRSS"),
-                                checked_func = function()
-                                    return config.navbar.news_action ~= "folder"
-                                        and config.navbar.news_action ~= "rssreader"
-                                end,
-                                callback = function()
-                                    config.navbar.news_action = "quickrss"
-                                    save_and_apply_navbar()
-                                end,
-                            },
-                            {
-                                text = _("Open RSS Reader"),
-                                checked_func = function() return config.navbar.news_action == "rssreader" end,
-                                callback = function()
-                                    config.navbar.news_action = "rssreader"
-                                    save_and_apply_navbar()
-                                end,
-                            },
-                            {
-                                text_func = function()
-                                    if config.navbar.news_action == "folder" and config.navbar.news_folder ~= "" then
-                                        local util = require("util")
-                                        local folder_name = select(2, util.splitFilePathName(config.navbar.news_folder))
-                                        return _("Open folder: ") .. folder_name
-                                    end
-                                    return _("Open folder")
-                                end,
-                                checked_func = function() return config.navbar.news_action == "folder" end,
-                                keep_menu_open = true,
-                                callback = function(touchmenu_instance)
-                                    local PathChooser = require("ui/widget/pathchooser")
-                                    local start_path = config.navbar.news_folder ~= "" and config.navbar.news_folder
-                                        or G_reader_settings:readSetting("lastdir") or "/"
-                                    local path_chooser = PathChooser:new{
-                                        select_file = false,
-                                        show_files = false,
-                                        path = start_path,
-                                        onConfirm = function(dir_path)
-                                            config.navbar.news_action = "folder"
-                                            config.navbar.news_folder = dir_path
-                                            save_and_apply_navbar()
-                                            if touchmenu_instance then
-                                                touchmenu_instance:updateItems()
-                                            end
-                                        end,
-                                    }
-                                    UIManager:show(path_chooser)
-                                end,
-                            },
-                            {
-                                text = _("Folder presets"),
-                                sub_item_table = {
-                                    {
-                                        text = _("Use home folder"),
-                                        callback = function()
-                                            config.navbar.news_action = "folder"
-                                            config.navbar.news_folder = paths.getHomeDir()
-                                            save_and_apply_navbar()
-                                        end,
-                                    },
-                                    {
-                                        text = _("Use last folder"),
-                                        callback = function()
-                                            config.navbar.news_action = "folder"
-                                            config.navbar.news_folder = utils.get_last_dir()
-                                            save_and_apply_navbar()
-                                        end,
-                                    },
-                                    {
-                                        text = _("Use current folder"),
-                                        callback = function()
-                                            config.navbar.news_action = "folder"
-                                            config.navbar.news_folder = utils.get_current_dir()
-                                            save_and_apply_navbar()
-                                        end,
-                                    },
-                                },
-                            },
-                        },
-                    },
-                },
+                text = _("Tabs") .. " \u{25B8}",
+                keep_menu_open = true,
+                callback = showTabsArrange,
             },
             {
                 text = _("Styling"),
                 sub_item_table = {
                     {
+                        text = _("Labels"),
+                        sub_item_table = {
+                            {
+                                text = _("Show labels"),
+                                checked_func = function() return config.navbar.show_labels == true end,
+                                enabled_func = function()
+                                    return config.navbar.show_labels ~= true
+                                        or config.navbar.show_icons ~= false
+                                end,
+                                callback = function()
+                                    if config.navbar.show_labels == true
+                                            and config.navbar.show_icons == false then
+                                        return
+                                    end
+                                    config.navbar.show_labels = config.navbar.show_labels ~= true
+                                    save_and_reflow_navbar()
+                                end,
+                            },
+                            {
+                                text_func = function()
+                                    ensure_navbar_sizes()
+                                    return string.format("%s %s", _("Label size:"), tostring(config.navbar.label_size))
+                                end,
+                                keep_menu_open = true,
+                                enabled_func = function()
+                                    return config.navbar.show_labels == true
+                                        or config.navbar.show_icons == false
+                                end,
+                                callback = function(touchmenu_instance)
+                                    local SpinWidget = require("ui/widget/spinwidget")
+                                    ensure_navbar_sizes()
+                                    UIManager:show(SpinWidget:new{
+                                        title_text = _("Navbar label size"),
+                                        value = config.navbar.label_size,
+                                        value_min = navbar_label_size_min,
+                                        value_max = navbar_label_size_max,
+                                        default_value = navbar_label_size_default,
+                                        callback = function(spin)
+                                            config.navbar.label_size = clamp_navbar_size(
+                                                spin.value,
+                                                navbar_label_size_min,
+                                                navbar_label_size_max,
+                                                navbar_label_size_default)
+                                            save_and_reflow_navbar()
+                                            if touchmenu_instance then touchmenu_instance:updateItems() end
+                                        end,
+                                    })
+                                end,
+                            },
+                        },
+                    },
+                    {
+                        text = _("Icons"),
+                        sub_item_table = {
+                            {
+                                text = _("Show icons"),
+                                checked_func = function() return config.navbar.show_icons ~= false end,
+                                enabled_func = function()
+                                    return config.navbar.show_icons == false
+                                        or config.navbar.show_labels == true
+                                end,
+                                callback = function()
+                                    if config.navbar.show_icons ~= false
+                                            and config.navbar.show_labels ~= true then
+                                        return
+                                    end
+                                    config.navbar.show_icons = config.navbar.show_icons == false
+                                    save_and_reflow_navbar()
+                                end,
+                            },
+                            {
+                                text_func = function()
+                                    ensure_navbar_sizes()
+                                    return string.format("%s %s", _("Icon size:"), tostring(config.navbar.icon_size))
+                                end,
+                                keep_menu_open = true,
+                                enabled_func = function() return config.navbar.show_icons ~= false end,
+                                callback = function(touchmenu_instance)
+                                    local SpinWidget = require("ui/widget/spinwidget")
+                                    ensure_navbar_sizes()
+                                    UIManager:show(SpinWidget:new{
+                                        title_text = _("Navbar icon size"),
+                                        value = config.navbar.icon_size,
+                                        value_min = navbar_icon_size_min,
+                                        value_max = navbar_icon_size_max,
+                                        default_value = navbar_icon_size_default,
+                                        callback = function(spin)
+                                            config.navbar.icon_size = clamp_navbar_size(
+                                                spin.value,
+                                                navbar_icon_size_min,
+                                                navbar_icon_size_max,
+                                                navbar_icon_size_default)
+                                            save_and_reflow_navbar()
+                                            if touchmenu_instance then touchmenu_instance:updateItems() end
+                                        end,
+                                    })
+                                end,
+                            },
+                        },
+                    },
+                    {
+                        text = _("Active tab"),
+                        sub_item_table = {
+                            {
+                                text = _("Underline"),
+                                checked_func = function() return config.navbar.active_tab_underline == true end,
+                                callback = function()
+                                    config.navbar.active_tab_underline = config.navbar.active_tab_underline ~= true
+                                    save_and_apply("navbar")
+                                end,
+                            },
+                            {
+                                text = _("Underline above icon"),
+                                checked_func = function() return config.navbar.underline_above == true end,
+                                enabled_func = function()
+                                    return config.navbar.active_tab_underline == true
+                                end,
+                                callback = function()
+                                    config.navbar.underline_above = config.navbar.underline_above ~= true
+                                    save_and_apply("navbar")
+                                end,
+                            },
+                            {
+                                text = _("Colored"),
+                                checked_func = function() return config.navbar.colored == true end,
+                                callback = function()
+                                    config.navbar.colored = config.navbar.colored ~= true
+                                    save_and_apply_navbar()
+                                end,
+                            },
+                            utils.buildColorSubMenu({
+                                label        = _("Active tab color: "),
+                                get          = ensure_navbar_color,
+                                set          = function(r, g, b)
+                                    set_navbar_color(r, g, b)
+                                    save_and_apply_navbar()
+                                end,
+                                enabled_func = function()
+                                    return config.navbar.colored == true
+                                end,
+                                dialog_title = _("Active tab RGB"),
+                                presets = {
+                                    { text = _("Blue"),  r = 0x33, g = 0x99, b = 0xFF },
+                                    { text = _("Green"), r = 0x33, g = 0xAA, b = 0x55 },
+                                    { text = _("Amber"), r = 0xFF, g = 0xAA, b = 0x00 },
+                                    { text = _("Red"),   r = 0xDD, g = 0x33, b = 0x33 },
+                                },
+                            }),
+                        },
+                    },
+                    {
                         text = _("Show top border"),
                         checked_func = function() return config.navbar.show_top_border == true end,
                         callback = function()
                             config.navbar.show_top_border = config.navbar.show_top_border ~= true
-                            save_and_reinit_navbar()
-                        end,
-                    },
-                    {
-                        text = _("Active tab styling"),
-                        checked_func = function() return config.navbar.active_tab_styling == true end,
-                        callback = function()
-                            config.navbar.active_tab_styling = config.navbar.active_tab_styling ~= true
-                            save_and_apply("navbar")
-                        end,
-                    },
-                    {
-                        text = _("Bold active tab"),
-                        checked_func = function() return config.navbar.active_tab_bold == true end,
-                        enabled_func = function() return config.navbar.active_tab_styling == true end,
-                        callback = function()
-                            config.navbar.active_tab_bold = config.navbar.active_tab_bold ~= true
-                            save_and_apply("navbar")
-                        end,
-                    },
-                    {
-                        text = _("Active tab underline"),
-                        checked_func = function() return config.navbar.active_tab_underline == true end,
-                        enabled_func = function() return config.navbar.active_tab_styling == true end,
-                        callback = function()
-                            config.navbar.active_tab_underline = config.navbar.active_tab_underline ~= true
-                            save_and_apply("navbar")
-                        end,
-                    },
-                    {
-                        text = _("Underline above icon"),
-                        checked_func = function() return config.navbar.underline_above == true end,
-                        enabled_func = function()
-                            return config.navbar.active_tab_styling == true
-                                and config.navbar.active_tab_underline == true
-                        end,
-                        callback = function()
-                            config.navbar.underline_above = config.navbar.underline_above ~= true
-                            save_and_apply("navbar")
-                        end,
-                    },
-                    {
-                        text = _("Colored active tab"),
-                        checked_func = function() return config.navbar.colored == true end,
-                        enabled_func = function() return config.navbar.active_tab_styling == true end,
-                        callback = function()
-                            config.navbar.colored = config.navbar.colored ~= true
-                            save_and_apply_navbar()
-                        end,
-                    },
-                    utils.buildColorSubMenu({
-                        label        = _("Active tab color: "),
-                        get          = ensure_navbar_color,
-                        set          = function(r, g, b)
-                            set_navbar_color(r, g, b)
-                            save_and_apply_navbar()
-                        end,
-                        enabled_func = function()
-                            return config.navbar.active_tab_styling == true
-                                and config.navbar.colored == true
-                        end,
-                        dialog_title = _("Active tab RGB"),
-                        presets = {
-                            { text = _("Blue"),  r = 0x33, g = 0x99, b = 0xFF },
-                            { text = _("Green"), r = 0x33, g = 0xAA, b = 0x55 },
-                            { text = _("Amber"), r = 0xFF, g = 0xAA, b = 0x00 },
-                            { text = _("Red"),   r = 0xDD, g = 0x33, b = 0x33 },
-                        },
-                    }),
-                    {
-                        text = _("Refresh navbar"),
-                        keep_menu_open = true,
-                        callback = function()
-                            apply_feature("navbar")
+                            save_and_reflow_navbar()
                         end,
                     },
                 },
             },
             {
-                text = _("Show labels"),
-                checked_func = function() return config.navbar.show_labels == true end,
-                enabled_func = function()
-                    return config.navbar.show_labels ~= true
-                        or config.navbar.show_icons ~= false
+                text_func = function()
+                    local current = config.navbar.default_tab or "books"
+                    return _("Default tab: ") .. get_default_tab_label(current)
                 end,
-                callback = function()
-                    if config.navbar.show_labels == true
-                            and config.navbar.show_icons == false then
-                        return
-                    end
-                    config.navbar.show_labels = config.navbar.show_labels ~= true
-                    save_and_reinit_navbar()
-                end,
-            },
-            {
-                text = _("Show icons"),
-                checked_func = function() return config.navbar.show_icons ~= false end,
-                enabled_func = function()
-                    return config.navbar.show_icons == false
-                        or config.navbar.show_labels == true
-                end,
-                callback = function()
-                    if config.navbar.show_icons ~= false
-                            and config.navbar.show_labels ~= true then
-                        return
-                    end
-                    config.navbar.show_icons = config.navbar.show_icons == false
-                    save_and_reinit_navbar()
-                end,
+                keep_menu_open = true,
+                sub_item_table_func = build_default_tab_items,
             },
         },
     }

@@ -4,6 +4,7 @@
 
 local _ = require("gettext")
 local T = require("ffi/util").template
+local Device = require("device")
 local UIManager = require("ui/uimanager")
 local defaults = require("config/defaults")
 local icons = require("common/inline_icon_map")
@@ -38,6 +39,8 @@ function M.build(ctx)
     local quick_button_items = {
         { key = "wifi",    text = _("Wi-Fi")       },
         { key = "night",   text = _("Night mode")  },
+        { key = "frontlight", text = _("Frontlight"), detect = function() return Device:hasFrontlight() end },
+        { key = "gyro", text = _("Gyroscope"), detect = function() return Device:hasGSensor() end },
         { key = "zen",     text = _("Zen mode")    },
         { key = "lockdown",text = _("Lockdown")    },
         { key = "rotate",  text = _("Rotate")      },
@@ -424,7 +427,7 @@ function M.build(ctx)
         end
         sort_items = build_sort_items()
         ZenArrangeList.show{
-            title = _("Buttons"),
+            title = _("Buttons") .. " (" .. _("Hold to arrange") .. ")",
             item_table = sort_items,
             add_title = _("Add"),
             hide_footer_cancel = true,

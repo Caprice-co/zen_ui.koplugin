@@ -951,18 +951,18 @@ local function build_data_provider(cfg, dcfg)
         return quotes[idx]
     end
 
-    function provider:nextQuote()
+    local function step_quote(delta)
         local quotes = HomeQuotes.getQuotes()
         local quote_count = #quotes
         if quote_count == 0 then return end
         local quote_cfg = dcfg.quotes or {}
-        local current = quote_cfg.manual_index or get_daily_quote_index()
-        local next_idx = current
-        if quote_count > 1 then
-            while next_idx == current do
-                next_idx = math.random(1, quote_count)
-            end
+        local current
+        if quote_cfg.day_seed == get_quote_day_index() and type(quote_cfg.manual_index) == "number" then
+            current = quote_cfg.manual_index
+        else
+            current = get_daily_quote_index()
         end
+        local next_idx = ((current - 1 + delta) % quote_count) + 1
         quote_cfg.manual_index = next_idx
         quote_cfg.day_seed = get_quote_day_index()
         dcfg.quotes = quote_cfg
@@ -970,6 +970,14 @@ local function build_data_provider(cfg, dcfg)
         if _home_menu and _home_menu._home_rebuild then
             _home_menu:_home_rebuild()
         end
+    end
+
+    function provider:nextQuote()
+        step_quote(1)
+    end
+
+    function provider:prevQuote()
+        step_quote(-1)
     end
 
     provider.stats = {}
@@ -1772,6 +1780,18 @@ local function rows_have_clock_refreshers(rows, dcfg)
     return false
 end
 
+-- Stats (today/streak/week) and the daily quote both depend on the current
+-- date and go stale after a wakeup that crossed midnight.
+local function rows_have_date_dependent(rows)
+    for _i, comp in ipairs(rows or {}) do
+        if comp.id == "stats_triplet" or comp.id == "reading_goals"
+                or comp.id == "quotes" then
+            return true
+        end
+    end
+    return false
+end
+
 function M.showHomeView(injectNavbar)
     local UIManager = require("ui/uimanager")
 
@@ -1809,6 +1829,7 @@ function M.showHomeView(injectNavbar)
     local rows = resolve_rows(dcfg)
     local data_provider = build_data_provider(cfg, dcfg)
     local has_clock_refreshers = rows_have_clock_refreshers(rows, dcfg)
+    local has_date_dependent = rows_have_date_dependent(rows)
     menu._zen_home_has_clock_refreshers = has_clock_refreshers
 
     local function rebuild(refresh_stats)
@@ -1850,6 +1871,16 @@ function M.showHomeView(injectNavbar)
         end
     end
 
+    -- Date-dependent content (stats, daily quote) goes stale after a wakeup
+    -- that crossed midnight. Force a stats re-query + rebuild when the home
+    -- page is on top.
+    local function refresh_home_date_dependent_if_top()
+        local stack = UIManager._window_stack
+        local top = stack and stack[#stack]
+        if not top or top.widget ~= menu then return end
+        rebuild(true)
+    end
+
     if show_status_bar then
         local status_refresh = menu._zen_status_refresh
         menu._zen_status_refresh = function(self, ...)
@@ -1865,6 +1896,11 @@ function M.showHomeView(injectNavbar)
         menu._zen_status_refresh = nil
     end
     if not show_status_bar and has_clock_refreshers then
+        -- Featured embedded status bar drives its own minute heartbeat via this
+        -- bind. Flag it so the FileManager dispatcher skips clock-tick refreshes
+        -- (avoids a double refresh) while still serving event-driven refreshes
+        -- like Wi-Fi toggle / TouchMenu close.
+        menu._zen_status_clock_bound = true
         pcall(function()
             require("common/clock_timer").bind(menu, function(target)
                 if target and target._zen_home_refresh_clock_widgets then
@@ -1874,16 +1910,75 @@ function M.showHomeView(injectNavbar)
         end)
     end
 
-    if not show_status_bar and has_clock_refreshers then
+    local resume_refreshes_clock = not show_status_bar and has_clock_refreshers
+    if resume_refreshes_clock or has_date_dependent then
         local orig_onResume = menu.onResume
         function menu:onResume(...)
             local result
             if orig_onResume then
                 result = orig_onResume(self, ...)
             end
-            UIManager:scheduleIn(0.5, refresh_home_clock_widgets_if_top)
-            UIManager:scheduleIn(1.5, refresh_home_clock_widgets_if_top)
+            if resume_refreshes_clock then
+                UIManager:scheduleIn(0.5, refresh_home_clock_widgets_if_top)
+                UIManager:scheduleIn(1.5, refresh_home_clock_widgets_if_top)
+            end
+            if has_date_dependent then
+                UIManager:scheduleIn(0.5, refresh_home_date_dependent_if_top)
+            end
             return result
+        end
+    end
+
+    if not show_status_bar and has_clock_refreshers then
+        -- Charging events arrive in pairs during USB negotiation (NotCharging ->
+        -- Charging) within a few seconds. Debounce into one refresh 1.5 s after
+        -- the last event so an embedded featured status bar shows the charging
+        -- indicator without waiting for the next minute clock tick.
+        local charging_refresh_timer = nil
+        local function scheduleChargingRefresh()
+            if charging_refresh_timer then
+                UIManager:unschedule(charging_refresh_timer)
+            end
+            charging_refresh_timer = function()
+                charging_refresh_timer = nil
+                refresh_home_clock_widgets_if_top()
+            end
+            UIManager:scheduleIn(1.5, charging_refresh_timer)
+        end
+
+        local function hookCharging(event_name)
+            local orig = menu[event_name]
+            menu[event_name] = function(self, ...)
+                local result
+                if orig then result = orig(self, ...) end
+                scheduleChargingRefresh()
+                return result
+            end
+        end
+        hookCharging("onCharging")
+        hookCharging("onNotCharging")
+
+        -- Wifi state changes: refresh so an embedded featured status bar updates
+        -- its wifi indicator without waiting for the next minute clock tick.
+        local function hookNetwork(event_name)
+            local orig = menu[event_name]
+            menu[event_name] = function(self, ...)
+                local result
+                if orig then result = orig(self, ...) end
+                refresh_home_clock_widgets_if_top()
+                return result
+            end
+        end
+        hookNetwork("onNetworkConnected")
+        hookNetwork("onNetworkDisconnected")
+
+        local orig_onSuspend = menu.onSuspend
+        function menu:onSuspend(...)
+            if charging_refresh_timer then
+                UIManager:unschedule(charging_refresh_timer)
+                charging_refresh_timer = nil
+            end
+            if orig_onSuspend then return orig_onSuspend(self, ...) end
         end
     end
 

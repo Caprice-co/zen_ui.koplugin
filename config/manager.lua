@@ -75,6 +75,15 @@ local function normalize_renamed_keys(cfg)
     -- Always-on features: no user toggle in Zen settings.
     cfg.features.browser_folder_cover = true
 
+    if type(cfg.navbar) == "table" and cfg.navbar.active_tab_bold ~= nil then
+        cfg.navbar.active_tab_bold = nil
+        changed = true
+    end
+    if type(cfg.navbar) == "table" and cfg.navbar.active_tab_styling ~= nil then
+        cfg.navbar.active_tab_styling = nil
+        changed = true
+    end
+
     return cfg, changed
 end
 

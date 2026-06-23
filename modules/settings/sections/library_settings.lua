@@ -167,14 +167,23 @@ function M.build(ctx)
                 end,
             },
             {
-                text = _("Use default font"),
+                text = _("Reset font"),
+                keep_menu_open = true,
                 callback = function(touchmenu_instance)
-                    local cfg = ensure_library_font_cfg(config)
-                    local changed = cfg.font_face ~= "default"
-                    if changed then
-                        cfg.font_face = "default"
-                        save_library_font(config, plugin, touchmenu_instance, true)
-                    end
+                    local ConfirmBox = require("ui/widget/confirmbox")
+                    UIManager:show(ConfirmBox:new{
+                        text = _("Reset font family and size to default?"),
+                        ok_text = _("Reset"),
+                        ok_callback = function()
+                            local cfg = ensure_library_font_cfg(config)
+                            local changed = cfg.font_face ~= "default" or cfg.font_size ~= 18
+                            if changed then
+                                cfg.font_face = "default"
+                                cfg.font_size = 18
+                                save_library_font(config, plugin, touchmenu_instance, true)
+                            end
+                        end,
+                    })
                 end,
             },
         },

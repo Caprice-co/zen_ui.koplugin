@@ -107,51 +107,10 @@ local ZenUI = WidgetContainer:extend{
     is_doc_only = false,
 }
 
+require("common/dispatch_action").install(ZenUI)
+
 function ZenUI:saveConfig()
     ConfigManager.save(self.config)
-end
-
-function ZenUI:onDispatcherRegisterActions()
-    local Dispatcher = require("dispatcher")
-    Dispatcher:registerAction("zen_ui_toggle_zen_mode", {
-        category = "none",
-        event = "ToggleZenMode",
-        title = _("Toggle Zen Mode"),
-        general = true,
-    })
-    Dispatcher:registerAction("zen_ui_toggle_lockdown_mode", {
-        category = "none",
-        event = "ToggleLockdownMode",
-        title = _("Toggle Lockdown Mode"),
-        general = true,
-    })
-end
-
-function ZenUI:onToggleZenMode()
-    local features = self.config and self.config.features
-    if type(features) ~= "table" then return false end
-    if features.lockdown_mode == true and features.zen_mode == true then
-        return true
-    end
-    features.zen_mode = not features.zen_mode
-    self:saveConfig()
-    require("modules/settings/zen_settings_apply").prompt_restart()
-    return true
-end
-
-function ZenUI:onToggleLockdownMode()
-    local features = self.config and self.config.features
-    if type(features) ~= "table" then return false end
-    local enabling = not features.lockdown_mode
-    features.lockdown_mode = enabling
-    if enabling then features.zen_mode = true end
-    local ok_lm, lockdown_mod = pcall(require, "modules/global/patches/lockdown_mode")
-    if ok_lm and type(lockdown_mod) == "table" then
-        lockdown_mod.apply_magnify_layout(self, enabling)
-    end
-    self:saveConfig()
-    require("modules/settings/zen_settings_apply").prompt_restart()
-    return true
 end
 
 local function is_enabled(config, path)
@@ -430,6 +389,8 @@ function ZenUI:init()
                     title       = _("Zen UI"),
                     title_icon  = true,
                     subtitle    = T(_("Updated to %1"), "v" .. current_ver),
+                    changelog   = (type(changelog_to_show) == "table" and #changelog_to_show > 0)
+                        and changelog_to_show or nil,
                     scroll_text = build_update_changelog_scroll_text(changelog_to_show),
                     on_close    = function()
                         logger.info("ZenUI update splash: closed, pages_to_show=", pages_to_show and #pages_to_show or 0)

@@ -426,6 +426,17 @@ local function open_submenu_for_item(sort_widget, item)
     return true
 end
 
+local function toggle_arrange_selection(row)
+    if not (row and row.show_parent and row.index) then return false end
+    if row.show_parent.marked == row.index then
+        row.show_parent.marked = 0
+    else
+        row.show_parent.marked = row.index
+    end
+    repopulate(row.show_parent)
+    return true
+end
+
 local function ensure_submenu_callbacks(items)
     if type(items) ~= "table" then return end
     for _i, item in ipairs(items) do
@@ -566,6 +577,13 @@ install_root_tap_handlers = function(sort_widget)
     if not sort_widget or not sort_widget.main_content then return end
     for _i, child in ipairs(sort_widget.main_content) do
         local item = type(child) == "table" and child.item or nil
+        if item and not child._zen_arrange_root_hold_patched then
+            child._zen_arrange_root_hold_patched = true
+            child.onHoldTouch = function(row)
+                toggle_arrange_selection(row)
+                return true
+            end
+        end
         if item and item._zen_arrange_submenu_on_tap and not child._zen_arrange_root_tap_patched then
             child._zen_arrange_root_tap_patched = true
             child.onTap = function(row, _arg, ges)
@@ -577,12 +595,7 @@ install_root_tap_handlers = function(sort_widget)
                     repopulate(row.show_parent)
                     return true
                 end
-                if row.show_parent.marked == row.index then
-                    open_submenu_for_item(row.show_parent, item)
-                else
-                    row.show_parent.marked = row.index
-                    repopulate(row.show_parent)
-                end
+                open_submenu_for_item(row.show_parent, item)
                 return true
             end
         end
