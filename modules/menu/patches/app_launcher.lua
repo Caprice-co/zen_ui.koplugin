@@ -17,6 +17,7 @@ local function apply_app_launcher()
     local _ = require("gettext")
 
     local Dispatcher = require("dispatcher")
+    local ActionFilter = require("modules/menu/app_launcher/action_filter")
     local Model = require("modules/menu/app_launcher/model")
     local PluginScan = require("modules/menu/app_launcher/plugin_scan")
     local ZenButton = require("common/ui/zen_button")
@@ -273,8 +274,24 @@ local function apply_app_launcher()
         end
     end
 
+    local function is_library_launcher(touch_menu)
+        return touch_menu
+            and type(touch_menu.item_table) == "table"
+            and touch_menu.item_table._zen_app_launcher_library == true
+    end
+
+    local function entry_hidden_in_context(entry, touch_menu, cfg)
+        return type(entry) == "table"
+            and entry.type == "action"
+            and cfg.hide_reader_actions_in_library == true
+            and is_library_launcher(touch_menu)
+            and ActionFilter.has_reader_action(Dispatcher, entry.action)
+    end
+
     local function activate_entry(touch_menu, entry)
         if not entry then return end
+        local cfg = Model.ensure(zen_plugin.config)
+        if entry_hidden_in_context(entry, touch_menu, cfg) then return end
         if entry._app_back then
             touch_menu._app_launcher_folder_id = nil
             touch_menu._app_launcher_page = 1
@@ -309,7 +326,8 @@ local function apply_app_launcher()
         end
     end
 
-    local function entry_available(entry)
+    local function entry_available(entry, touch_menu, cfg)
+        if entry_hidden_in_context(entry, touch_menu, cfg) then return false end
         if entry.type ~= "plugin" then return true end
         local plugin = entry.plugin
         return type(plugin) == "table" and PluginScan.exists(plugin.key, plugin.method)
@@ -348,7 +366,9 @@ local function apply_app_launcher()
             }
         end
         for _i, entry in ipairs(entries or {}) do
-            visible[#visible + 1] = entry
+            if not entry_hidden_in_context(entry, touch_menu, cfg) then
+                visible[#visible + 1] = entry
+            end
         end
 
         -- Pagination: slice the grid so it never overflows the space a normal
@@ -433,7 +453,7 @@ local function apply_app_launcher()
                 layout_rows[#layout_rows + 1] = {}
             end
             row_counts[#rows] = row_counts[#rows] + 1
-            local dim = not entry._app_back and not entry_available(entry)
+            local dim = not entry._app_back and not entry_available(entry, touch_menu, cfg)
             local cell = make_cell{
                 cell_w = cell_w,
                 cell_h = cell_h,
@@ -499,12 +519,15 @@ local function apply_app_launcher()
         }
     end)
 
-    local app_launcher_tab = {
-        id = "app_launcher",
-        icon = "app_launcher",
-        remember = false,
-        panel = create_panel,
-    }
+    local function make_app_launcher_tab(library_context)
+        return {
+            id = "app_launcher",
+            icon = "app_launcher",
+            remember = false,
+            panel = create_panel,
+            _zen_app_launcher_library = library_context == true,
+        }
+    end
 
     local function find_tab(tab_table, id)
         for i, tab in ipairs(tab_table or {}) do
@@ -512,7 +535,7 @@ local function apply_app_launcher()
         end
     end
 
-    local function sync_tab(menu_self)
+    local function sync_tab(menu_self, library_context)
         if type(menu_self.tab_item_table) ~= "table" then return end
         local existing = find_tab(menu_self.tab_item_table, "app_launcher")
         if not is_enabled() then
@@ -521,35 +544,38 @@ local function apply_app_launcher()
             end
             return
         end
-        if existing then return end
+        if existing then
+            menu_self.tab_item_table[existing]._zen_app_launcher_library = library_context == true
+            return
+        end
         local zen_pos = find_tab(menu_self.tab_item_table, "zen_ui")
         local qs_pos = find_tab(menu_self.tab_item_table, "quicksettings")
         table.insert(menu_self.tab_item_table,
             zen_pos and (zen_pos + 1) or qs_pos and (qs_pos + 1) or 1,
-            app_launcher_tab)
+            make_app_launcher_tab(library_context))
     end
 
-    local function patch_menu_class(menu_class)
+    local function patch_menu_class(menu_class, library_context)
         if not menu_class or menu_class.__zen_app_launcher_tab_patched then return end
         menu_class.__zen_app_launcher_tab_patched = true
         local orig_sut = menu_class.setUpdateItemTable
         menu_class.setUpdateItemTable = function(self)
             orig_sut(self)
-            sync_tab(self)
+            sync_tab(self, library_context)
         end
         local orig_onShowMenu = menu_class.onShowMenu
         if type(orig_onShowMenu) == "function" then
             menu_class.onShowMenu = function(self, ...)
-                sync_tab(self)
+                sync_tab(self, library_context)
                 return orig_onShowMenu(self, ...)
             end
         end
     end
 
     local ok_fm, FileManagerMenu = pcall(require, "apps/filemanager/filemanagermenu")
-    if ok_fm then patch_menu_class(FileManagerMenu) end
+    if ok_fm then patch_menu_class(FileManagerMenu, true) end
     local ok_rm, ReaderMenu = pcall(require, "apps/reader/modules/readermenu")
-    if ok_rm then patch_menu_class(ReaderMenu) end
+    if ok_rm then patch_menu_class(ReaderMenu, false) end
 
     local TouchMenu = require("ui/widget/touchmenu")
     if not TouchMenu.__zen_app_launcher_back_patched then

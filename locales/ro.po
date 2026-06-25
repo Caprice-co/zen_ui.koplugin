@@ -900,6 +900,9 @@ msgstr "Ascunde în fișiere CBZ/PDF"
 msgid "Hide list borders"
 msgstr "Ascunde marginile listei"
 
+msgid "Hide reader actions in library"
+msgstr ""
+
 msgid "Hide up folder"
 msgstr "Ascunde dosarul părinte"
 

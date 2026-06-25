@@ -900,6 +900,9 @@ msgstr "CBZ/PDFファイルで非表示"
 msgid "Hide list borders"
 msgstr "リストの境界線を非表示"
 
+msgid "Hide reader actions in library"
+msgstr ""
+
 msgid "Hide up folder"
 msgstr "上フォルダを非表示"
 

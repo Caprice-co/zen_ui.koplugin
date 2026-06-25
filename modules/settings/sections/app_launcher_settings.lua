@@ -6,6 +6,7 @@ local IconItem = require("common/ui/icon_menu_item")
 
 local Model = require("modules/menu/app_launcher/model")
 local PluginScan = require("modules/menu/app_launcher/plugin_scan")
+local ActionFilter = require("modules/menu/app_launcher/action_filter")
 
 local M = {}
 local DEFAULT_ENTRY_ICON = "lightning"
@@ -21,6 +22,7 @@ function M.build(ctx)
     local cfg = Model.ensure(config)
     local build_entry_items
     local show_entries_arrange
+    local sync_action_label
 
     local function save_app_launcher()
         Model.save(cfg)
@@ -123,7 +125,33 @@ function M.build(ctx)
         return nil
     end
 
-    local function sync_action_label(entry)
+    local function has_valid_target(entry)
+        if entry.type == "action" then
+            return type(entry.action) == "table" and next(entry.action) ~= nil
+        end
+        return entry.type == "plugin"
+            and type(entry.plugin) == "table"
+            and entry.plugin.key ~= nil
+            and entry.plugin.method ~= nil
+    end
+
+    local function add_done_metadata(items, entry)
+        items._zen_arrange_done_func = function()
+            if entry.type == "action" then
+                sync_action_label(entry)
+            end
+            if is_draft_entry(entry) then
+                entry._zen_draft_commit()
+            elseif has_valid_target(entry) then
+                save_app_launcher()
+            end
+        end
+        items._zen_arrange_done_enabled_func = function()
+            return has_valid_target(entry)
+        end
+    end
+
+    sync_action_label = function(entry)
         if entry.type ~= "action" then return end
         local current = entry.label or ""
         if entry.label_auto == true or current == "" or current == _("Action") then
@@ -392,6 +420,9 @@ function M.build(ctx)
         local dispatch_items = {}
         local caller = {}
         Dispatcher:addSubMenu(caller, dispatch_items, entry, "action")
+        if cfg.hide_reader_actions_in_library == true then
+            ActionFilter.filter_dispatch_menu(dispatch_items)
+        end
         wrap_dispatch_callbacks(dispatch_items, caller, function(touch_menu)
             sync_action_label(entry)
             if is_draft_entry(entry) then
@@ -554,6 +585,9 @@ function M.build(ctx)
                 })
             end,
         }, icons.delete)
+        if entry.type == "action" or entry.type == "plugin" then
+            add_done_metadata(items, entry)
+        end
         return items
     end
 
@@ -642,6 +676,19 @@ function M.build(ctx)
             end,
             callback = function(touch_menu)
                 cfg.show_labels = cfg.show_labels == false
+                save_app_launcher()
+                if touch_menu and touch_menu.updateItems then
+                    touch_menu:updateItems(1)
+                end
+            end,
+        },
+        {
+            text = _("Hide reader actions in library"),
+            checked_func = function()
+                return cfg.hide_reader_actions_in_library == true
+            end,
+            callback = function(touch_menu)
+                cfg.hide_reader_actions_in_library = cfg.hide_reader_actions_in_library ~= true
                 save_app_launcher()
                 if touch_menu and touch_menu.updateItems then
                     touch_menu:updateItems(1)

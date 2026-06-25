@@ -16,6 +16,7 @@ return {
     copy         = "\u{F018F}",  -- mdi-content-copy
     cut          = "\u{F0190}",  -- mdi-content-cut
     paste        = "\u{F0192}",  -- mdi-content-paste
+    save         = "\u{F0193}",  -- mdi-content-save
     select       = "\u{F0489}",  -- mdi-cursor-default-click
     new_folder   = "\u{F0B9D}",  -- mdi-folder-plus
     folder_open  = "\u{F07C}",   -- mdi-folder-open

@@ -1,4 +1,5 @@
 local Blitbuffer = require("ffi/blitbuffer")
+local Button = require("ui/widget/button")
 local CenterContainer = require("ui/widget/container/centercontainer")
 local CheckMark = require("ui/widget/checkmark")
 local Font = require("ui/font")
@@ -14,6 +15,8 @@ local SortWidget = require("ui/widget/sortwidget")
 local TextWidget = require("ui/widget/textwidget")
 local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
+local _ = require("gettext")
+local icons = require("common/inline_icon_map")
 local IconItem = require("common/ui/icon_menu_item")
 local ZenToggle = require("common/ui/zen_toggle")
 local utils = require("common/utils")
@@ -235,6 +238,114 @@ local function apply_icon_rows(sort_widget)
     end
 end
 
+local function suppress_page_centering(sort_widget)
+    local content = sort_widget and sort_widget[1] and sort_widget[1][1]
+    local frame_content = content and content[1]
+    local vertical_group = frame_content and frame_content[1]
+    local padding_span = vertical_group and vertical_group[2]
+    if vertical_group and padding_span and vertical_group[3] == sort_widget.main_content then
+        padding_span.width = 0
+        if vertical_group.resetLayout then
+            vertical_group:resetLayout()
+        end
+    end
+end
+
+local function get_done_action(items, fallback)
+    if type(items) ~= "table" then return false end
+    local done_func = items._zen_arrange_done_func
+    local finish = type(done_func) == "function"
+    if not finish and fallback then
+        done_func = fallback.done_func
+    end
+    if type(done_func) ~= "function" then return false end
+    local enabled_func = items._zen_arrange_done_enabled_func
+    if enabled_func == nil and fallback then
+        enabled_func = fallback.done_enabled_func
+    end
+    if type(enabled_func) == "function" and not enabled_func() then return false end
+    return {
+        done_func = done_func,
+        finish = finish,
+        text = (finish and icons.check or icons.save)
+            .. " "
+            .. (finish and _("Finish") or _("Done")),
+    }
+end
+
+local function remove_done_button(sort_widget)
+    local title_bar = sort_widget and sort_widget.title_bar
+    local button = title_bar and title_bar._zen_arrange_done_button
+    if not button then return end
+    for i = #title_bar, 1, -1 do
+        if title_bar[i] == button then
+            table.remove(title_bar, i)
+            break
+        end
+    end
+    button:free()
+    title_bar._zen_arrange_done_button = nil
+    title_bar._zen_arrange_done_text = nil
+    if title_bar.right_button and title_bar._zen_arrange_right_button_ges_events ~= nil then
+        title_bar.right_button.ges_events = title_bar._zen_arrange_right_button_ges_events or {}
+        title_bar._zen_arrange_right_button_ges_events = nil
+    end
+end
+
+local function sync_done_button(sort_widget, menu_proxy, fallback)
+    local title_bar = sort_widget and sort_widget.title_bar
+    if not title_bar then return end
+    local items = menu_proxy and menu_proxy.item_table or sort_widget.item_table
+    local action = get_done_action(items, fallback)
+    if not action then
+        remove_done_button(sort_widget)
+        return
+    end
+    if title_bar._zen_arrange_done_button then
+        if title_bar._zen_arrange_done_text == action.text then return end
+        remove_done_button(sort_widget)
+    end
+    if title_bar.right_button and title_bar._zen_arrange_right_button_ges_events == nil then
+        title_bar._zen_arrange_right_button_ges_events = title_bar.right_button.ges_events or false
+        title_bar.right_button.ges_events = {}
+    end
+    local button = Button:new{
+        text = action.text,
+        bordersize = 0,
+        radius = 0,
+        padding_h = Size.padding.default,
+        padding_v = Size.padding.small,
+        text_font_face = "smallinfofont",
+        text_font_size = 18,
+        text_font_bold = true,
+        allow_flash = false,
+        show_parent = sort_widget,
+        callback = function()
+            local current_items = menu_proxy and menu_proxy.item_table or sort_widget.item_table
+            local current_action = get_done_action(current_items, fallback)
+            if not current_action then return true end
+            current_action.done_func(menu_proxy)
+            UIManager:close(sort_widget)
+            if current_action.finish and fallback and type(fallback.close_arrange) == "function" then
+                fallback.close_arrange()
+            elseif fallback and type(fallback.return_to_parent) == "function" then
+                fallback.return_to_parent()
+            end
+            return true
+        end,
+    }
+    local button_size = button:getSize()
+    local title_h = title_bar:getHeight()
+    local content_h = math.max(1, title_h - (title_bar.bottom_v_padding or 0) - Size.line.thick)
+    button.overlap_offset = {
+        math.max(0, (title_bar.width or 0) - button_size.w - Size.padding.default),
+        math.max(0, math.floor((content_h - button_size.h) / 2)),
+    }
+    title_bar._zen_arrange_done_button = button
+    title_bar._zen_arrange_done_text = action.text
+    table.insert(title_bar, button)
+end
+
 local function configure_title_bar(sort_widget, opts)
     opts = opts or {}
     local title_bar = sort_widget and sort_widget.title_bar
@@ -279,7 +390,9 @@ local function configure_title_bar(sort_widget, opts)
                         else
                             repopulate(sort_widget)
                         end
-                    end)
+                    end, {
+                        close_arrange = opts.close_arrange,
+                    })
                 end
                 return true
             end
@@ -433,7 +546,16 @@ local function open_submenu_for_item(sort_widget, item)
         else
             repopulate(sort_widget)
         end
-    end)
+    end, {
+        close_arrange = sort_widget._zen_arrange_close_all,
+        done_func = sort_widget._zen_arrange_done_func,
+        done_enabled_func = sort_widget._zen_arrange_done_enabled_func,
+        return_to_parent = sort_widget.item_table
+            and sort_widget.item_table._zen_arrange_done_func == nil
+            and sort_widget._zen_arrange_done_func ~= nil
+            and sort_widget._zen_arrange_return_to_parent
+            or nil,
+    })
     return true
 end
 
@@ -468,8 +590,12 @@ local function ensure_submenu_callbacks(items)
     end
 end
 
-show_submenu = function(title, items, refresh)
+show_submenu = function(title, items, refresh, opts)
     if type(items) ~= "table" or #items == 0 then return end
+    opts = opts or {}
+    if opts.return_to_parent == nil then
+        opts.return_to_parent = refresh
+    end
     ensure_submenu_callbacks(items)
     update_dynamic_text(items)
 
@@ -484,6 +610,9 @@ show_submenu = function(title, items, refresh)
         refresh_after_callbacks(items, refresh_lists, menu_proxy)
         if sort_widget then
             sort_widget.item_table = items
+            sort_widget._zen_arrange_done_func = items._zen_arrange_done_func or opts.done_func
+            sort_widget._zen_arrange_done_enabled_func =
+                items._zen_arrange_done_enabled_func or opts.done_enabled_func
             repopulate(sort_widget)
         end
         if refresh then refresh() end
@@ -519,6 +648,19 @@ show_submenu = function(title, items, refresh)
         sort_disabled = false,
     }
     sort_widget.sort_disabled = true
+    sort_widget._zen_arrange_close_all = opts.close_arrange
+    sort_widget._zen_arrange_return_to_parent = function()
+        if sort_widget then
+            UIManager:close(sort_widget)
+            sort_widget = nil
+        end
+        if type(opts.return_to_parent) == "function" then
+            opts.return_to_parent()
+        end
+    end
+    sort_widget._zen_arrange_done_func = items._zen_arrange_done_func or opts.done_func
+    sort_widget._zen_arrange_done_enabled_func =
+        items._zen_arrange_done_enabled_func or opts.done_enabled_func
 
     sort_widget.key_events = sort_widget.key_events or {}
     sort_widget.key_events.FocusRight = nil
@@ -533,6 +675,8 @@ show_submenu = function(title, items, refresh)
     end
 
     configure_title_bar(sort_widget)
+    suppress_page_centering(sort_widget)
+    sync_done_button(sort_widget, menu_proxy, opts)
     if sort_widget.title_bar and sort_widget.title_bar.left_button then
         sort_widget.title_bar.left_button.callback = function()
             menu_proxy:backToUpperMenu()
@@ -549,9 +693,11 @@ show_submenu = function(title, items, refresh)
     sort_widget._populateItems = function(self, ...)
         update_dynamic_text(self.item_table)
         local result = orig_populate(self, ...)
+        suppress_page_centering(self)
         suppress_footer_cancel(self.footer_cancel)
         suppress_footer_jump_buttons(self)
         sync_footer_ok(self)
+        sync_done_button(self, menu_proxy, opts)
         apply_icon_rows(self)
         install_submenu_tap_handlers(self)
         install_titlebar_focus(self)
@@ -636,6 +782,19 @@ function M.show(opts)
         end
         self:_populateItems()
     end
+    sort_widget._zen_arrange_close_all = function()
+        if sort_widget.callback then
+            sort_widget:callback()
+        end
+        sort_widget.marked = 0
+        sort_widget.orig_item_table = nil
+        return sort_widget:onClose()
+    end
+    local title_opts = {
+        add_title = opts.add_title,
+        add_item_table = opts.add_item_table,
+        close_arrange = sort_widget._zen_arrange_close_all,
+    }
 
     local orig_on_press = sort_widget.onPress
     sort_widget.onPress = function(self)
@@ -665,10 +824,8 @@ function M.show(opts)
         return true
     end
 
-    configure_title_bar(sort_widget, {
-        add_title = opts.add_title,
-        add_item_table = opts.add_item_table,
-    })
+    configure_title_bar(sort_widget, title_opts)
+    suppress_page_centering(sort_widget)
     if opts.hide_footer_cancel then
         suppress_footer_cancel(sort_widget.footer_cancel)
     else
@@ -683,6 +840,7 @@ function M.show(opts)
     sort_widget._populateItems = function(self, ...)
         update_dynamic_text(self.item_table)
         local result = orig_populate(self, ...)
+        suppress_page_centering(self)
         if opts.hide_footer_cancel then
             suppress_footer_cancel(self.footer_cancel)
         else
@@ -706,7 +864,9 @@ function M.show(opts)
                 else
                     repopulate(sort_widget)
                 end
-            end)
+            end, {
+                close_arrange = sort_widget._zen_arrange_close_all,
+            })
         end)
     end
     return sort_widget

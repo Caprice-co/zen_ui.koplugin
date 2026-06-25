@@ -900,6 +900,9 @@ msgstr "Skrýt v souborech CBZ/PDF"
 msgid "Hide list borders"
 msgstr "Skrýt okraje seznamu"
 
+msgid "Hide reader actions in library"
+msgstr ""
+
 msgid "Hide up folder"
 msgstr "Skrýt složku"
 

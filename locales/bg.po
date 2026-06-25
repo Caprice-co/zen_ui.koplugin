@@ -909,6 +909,9 @@ msgstr "Скриване в CBZ/PDF файлове"
 msgid "Hide list borders"
 msgstr "Скриване на границите на списъка"
 
+msgid "Hide reader actions in library"
+msgstr ""
+
 msgid "Hide up folder"
 msgstr "Скриване на горната папка"
 

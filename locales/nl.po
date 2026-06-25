@@ -900,6 +900,9 @@ msgstr "Verbergen in CBZ/PDF-bestanden"
 msgid "Hide list borders"
 msgstr "Lijstranden verbergen"
 
+msgid "Hide reader actions in library"
+msgstr ""
+
 msgid "Hide up folder"
 msgstr "Bovenliggende map verbergen"
 

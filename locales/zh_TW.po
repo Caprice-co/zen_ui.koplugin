@@ -900,6 +900,9 @@ msgstr "在 CBZ/PDF 檔案中隱藏"
 msgid "Hide list borders"
 msgstr "隱藏列表邊框"
 
+msgid "Hide reader actions in library"
+msgstr ""
+
 msgid "Hide up folder"
 msgstr "隱藏上層資料夾"
 

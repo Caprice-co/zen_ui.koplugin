@@ -900,6 +900,9 @@ msgstr "Hide in CBZ/PDF files"
 msgid "Hide list borders"
 msgstr "Hide list borders"
 
+msgid "Hide reader actions in library"
+msgstr "Hide reader actions in library"
+
 msgid "Hide up folder"
 msgstr "Hide up folder"
 

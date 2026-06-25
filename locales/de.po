@@ -900,6 +900,9 @@ msgstr "In CBZ/PDF-Dateien ausblenden"
 msgid "Hide list borders"
 msgstr "Listenränder ausblenden"
 
+msgid "Hide reader actions in library"
+msgstr ""
+
 msgid "Hide up folder"
 msgstr "Übergeordneten Ordner ausblenden"
 

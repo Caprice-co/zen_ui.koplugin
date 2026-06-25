@@ -900,6 +900,9 @@ msgstr "Nascondi nei file CBZ/PDF"
 msgid "Hide list borders"
 msgstr "Nascondi bordi lista"
 
+msgid "Hide reader actions in library"
+msgstr ""
+
 msgid "Hide up folder"
 msgstr "Nascondi la cartella superiore"
 

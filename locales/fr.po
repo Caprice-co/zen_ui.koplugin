@@ -900,6 +900,9 @@ msgstr "Masquer dans les fichiers CBZ/PDF"
 msgid "Hide list borders"
 msgstr "Masquer les bordures de liste"
 
+msgid "Hide reader actions in library"
+msgstr ""
+
 msgid "Hide up folder"
 msgstr "Masquer le dossier parent"
 

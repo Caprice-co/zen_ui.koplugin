@@ -900,6 +900,9 @@ msgstr "Ẩn trong tệp CBZ/PDF"
 msgid "Hide list borders"
 msgstr "Ẩn viền danh sách"
 
+msgid "Hide reader actions in library"
+msgstr ""
+
 msgid "Hide up folder"
 msgstr "Ẩn thư mục lên"
 
