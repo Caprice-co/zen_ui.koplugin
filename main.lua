@@ -214,6 +214,21 @@ function ZenUI:init()
         end
     end
 
+    -- First-run: color e-ink screens clip the footer bottom, so bump the
+    -- container bottom margin from KOReader's default of 1 to 6.
+    if not self.config._meta.footer_color_bottom_padding_applied then
+        local Device = require("device")
+        if Device:hasColorScreen() then
+            local footer_settings = G_reader_settings:readSetting("footer")
+            if type(footer_settings) == "table" then
+                footer_settings.container_bottom_padding = 6
+                G_reader_settings:saveSetting("footer", footer_settings)
+            end
+        end
+        self.config._meta.footer_color_bottom_padding_applied = true
+        self:saveConfig()
+    end
+
     -- First-run: default to swipe-only menu activation (KOReader default is tap+swipe).
     if not self.config._meta.menu_activation_defaulted then
         G_reader_settings:saveSetting("activation_menu", "swipe")
@@ -228,6 +243,23 @@ function ZenUI:init()
         G_reader_settings:saveSetting("collate", "access")
         G_reader_settings:saveSetting("collate_mixed", true)
         self.config._meta.sort_defaults_applied = true
+        self:saveConfig()
+    end
+
+    -- First-run: suppress KOReader's two startup dialogs (quickstart guide book
+    -- and the "rendered in color" InfoMessage). Both are gated on G_reader_settings
+    -- keys; pre-setting them before KOReader checks skips the dialogs. Only set when
+    -- absent so we never clobber a choice the user already made.
+    if not self.config._meta.koreader_startup_dialogs_suppressed then
+        -- quickstart.lua:isShown() is true when shown_version >= force_show_version (2021070000).
+        if not G_reader_settings:has("quickstart_shown_version") then
+            G_reader_settings:saveSetting("quickstart_shown_version", 202603000000)
+        end
+        -- reader.lua color popup only fires when this key is absent.
+        if not G_reader_settings:has("color_rendering") then
+            G_reader_settings:makeTrue("color_rendering")
+        end
+        self.config._meta.koreader_startup_dialogs_suppressed = true
         self:saveConfig()
     end
 
