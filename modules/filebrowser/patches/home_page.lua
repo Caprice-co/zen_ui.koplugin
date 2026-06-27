@@ -849,13 +849,7 @@ local function build_data_provider(cfg, dcfg)
             end
             return out
         end
-        local hist = get_history()
-        local out = {}
-        for _i, path in ipairs(hist) do
-            table.insert(out, path)
-            if #out >= lim then break end
-        end
-        return out
+        return get_paths_by_status("reading", lim)
     end
 
     function provider:getFeaturedBook(source_key, order_key)

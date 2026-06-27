@@ -5,6 +5,7 @@ local HorizontalGroup = require("ui/widget/horizontalgroup")
 local HorizontalSpan = require("ui/widget/horizontalspan")
 local FrameContainer = require("ui/widget/container/framecontainer")
 local CenterContainer = require("ui/widget/container/centercontainer")
+local LeftContainer = require("ui/widget/container/leftcontainer")
 local TopContainer = require("ui/widget/container/topcontainer")
 local TextWidget = require("ui/widget/textwidget")
 local TextBoxWidget = require("ui/widget/textboxwidget")
@@ -413,8 +414,10 @@ function M.build_strip(ctx, source_key)
 
     local function build_row_widget(row_list, row_num)
         local n = #row_list
+        local row_capacity = two_rows and per_row or n
+        local left_align_partial = two_rows and row_num == 2 and n < per_row
         local min_gap = math.max(6, math.min(Screen:scaleBySize(14), math.floor(width * 0.018)))
-        local max_cover_w = math.max(24, math.floor((width - min_gap * (n - 1)) / n))
+        local max_cover_w = math.max(24, math.floor((width - min_gap * (row_capacity - 1)) / row_capacity))
         local cover_h = math.min(max_cover_h_per_row, math.floor(max_cover_w * 1.62))
         if cover_h < 1 then cover_h = max_cover_h_per_row end
 
@@ -449,9 +452,12 @@ function M.build_strip(ctx, source_key)
         local gap = 0
         local extra_gap_px = 0
         if #items > 1 then
-            local available_gap = math.max(min_gap * (#items - 1), width - covers_w)
-            gap = math.floor(available_gap / (#items - 1))
-            extra_gap_px = available_gap - gap * (#items - 1)
+            local gap_slots = left_align_partial and math.max(1, row_capacity - 1) or (#items - 1)
+            local avg_cover_w = math.floor(covers_w / #items)
+            local cover_slots_w = left_align_partial and (avg_cover_w * row_capacity) or covers_w
+            local available_gap = math.max(min_gap * gap_slots, width - cover_slots_w)
+            gap = math.floor(available_gap / gap_slots)
+            extra_gap_px = left_align_partial and 0 or (available_gap - gap * gap_slots)
         end
 
         local row = HorizontalGroup:new{ align = "center" }
@@ -558,7 +564,9 @@ function M.build_strip(ctx, source_key)
         if #row_books[r] > 0 then
             local row_widget, row_h = build_row_widget(row_books[r], r)
             total_row_h = total_row_h + row_h
-            table.insert(vgroup, CenterContainer:new{ dimen = Geom:new{ w = width, h = row_h }, row_widget })
+            local container = two_rows and r == 2 and #row_books[r] < per_row
+                and LeftContainer or CenterContainer
+            table.insert(vgroup, container:new{ dimen = Geom:new{ w = width, h = row_h }, row_widget })
             if row_inner_bottom_pad > 0 then
                 table.insert(vgroup, VerticalSpan:new{ width = row_inner_bottom_pad })
             end

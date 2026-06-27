@@ -773,6 +773,21 @@ function M.build(ctx)
                 end,
             },
             {
+                text = _("Two rows"),
+                checked_func = function()
+                    return mcfg.two_rows == true
+                end,
+                callback = function()
+                    mcfg.two_rows = mcfg.two_rows ~= true
+                    if mcfg.two_rows then
+                        mcfg.count = 8
+                    else
+                        mcfg.count = 4
+                    end
+                    save_home("reinit")
+                end,
+            },
+            {
                 text = _("Show book titles"),
                 checked_func = function()
                     return mcfg.show_strip_titles == true
@@ -793,6 +808,26 @@ function M.build(ctx)
                 end,
             },
             interactive_item(mcfg),
+            {
+                text_func = function()
+                    return _("Books shown: ") .. tostring(mcfg.count or 4)
+                end,
+                keep_menu_open = true,
+                callback = function()
+                    local SpinWidget = require("ui/widget/spinwidget")
+                    local is_two = mcfg.two_rows == true
+                    UIManager:show(SpinWidget:new{
+                        title_text = _("Books shown"),
+                        value = mcfg.count or (is_two and 8 or 4),
+                        value_min = is_two and 2 or 3,
+                        value_max = is_two and 10 or 5,
+                        callback = function(spin)
+                            mcfg.count = spin.value
+                            save_home("reinit")
+                        end,
+                    })
+                end,
+            },
             {
                 text = _("Add book"),
                 keep_menu_open = true,
