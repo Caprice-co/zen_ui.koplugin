@@ -18,9 +18,10 @@ local function time_text()
 end
 
 local function date_text()
+    local datetime = require("datetime")
     local t = os.date("*t")
-    local weekday = os.date("%A")
-    local month = os.date("%B")
+    local weekday = datetime.shortDayOfWeekToLongTranslation[datetime.weekDays[t.wday]] or os.date("%A")
+    local month = datetime.longMonthTranslation[os.date("%B")] or os.date("%B")
     return weekday .. ", " .. month .. " " .. tostring(t.day)
 end
 

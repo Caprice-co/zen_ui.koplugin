@@ -315,12 +315,12 @@ local function apply_collections()
 
             self.is_directory = true
 
+            local _ = require("gettext")
             local coll_name  = self.entry.name
             local files = get_collection_files_in_cover_order(coll_name)
             local book_count = #files
             local display_name = coll_name
             if coll_name == ReadCollection.default_collection_name then
-                local _ = require("gettext")
                 display_name = _("Favorites")
             end
 
@@ -378,7 +378,7 @@ local function apply_collections()
                                 and (cover_zone_w + pad_left) or pad_left
 
             -- Right widget: book count
-            local count_str  = tostring(book_count) .. " " .. (book_count == 1 and "book" or "books")
+            local count_str  = tostring(book_count) .. " " .. (book_count == 1 and _("book") or _("books"))
             local wright_status = TextWidget:new{
                 text    = count_str,
                 face    = library_font.getFace(fs_meta),
