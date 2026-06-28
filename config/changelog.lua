@@ -119,4 +119,17 @@ return {
         "Added German translations",
         "Bug fixes",
     },
+    ["2.1.0"] = {
+        "Use full width for launcher icons",
+        "Update home folder locking Zen mode (on/off/only in Zen Mode)",
+        "Set reasonable max items for list mode - preventing crash",
+        "Update end of book page to automatically mark finished and show next file button",
+        "Update end of book page to return to library on page forward button/key",
+        "Remove go to page in scrollbar for menus like icon picker, plugin list etc",
+        "Fix discolored status bar color on color e-ink devices",
+        "Fix a crash on KOReader 2024",
+        "Fix some untranslated strings falling back to English",
+        "Bug fixes",
+    },
+
 }
