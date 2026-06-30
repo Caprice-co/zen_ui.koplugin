@@ -125,6 +125,8 @@ local DEFAULT_HOME_PAGE = {
         },
         strip_recent = {
             count = 4,
+            filter_finished = false,
+            filter_unread = false,
             interactive = true,
             order = "default",
             show_badges = false,
@@ -262,6 +264,8 @@ local BOOKSHELF_HOME_PAGE = {
         },
         strip_recent = {
             count = 8,
+            filter_finished = false,
+            filter_unread = false,
             interactive = true,
             order = "default",
             show_badges = false,

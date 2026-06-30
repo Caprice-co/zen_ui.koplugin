@@ -237,6 +237,10 @@ local function ensure_strip_module_cfg(dcfg, module_id)
     local mcfg = ensure_module_cfg(dcfg, module_id)
     mcfg.order = normalize_order(mcfg.order)
     if mcfg.interactive == nil then mcfg.interactive = true end
+    if module_id == "strip_recent" then
+        if mcfg.filter_unread == nil then mcfg.filter_unread = false end
+        if mcfg.filter_finished == nil then mcfg.filter_finished = false end
+    end
     if mcfg.two_rows == nil then mcfg.two_rows = false end
     if type(mcfg.count) ~= "number" then mcfg.count = mcfg.two_rows and 8 or 4 end
     if mcfg.two_rows then
@@ -599,9 +603,10 @@ local function build_data_provider(cfg, dcfg)
         return history_cached
     end
 
-    local function get_book(path)
+    local function get_book(path, need_time_left)
         if not path then return nil end
         local cache_key = get_home_book_cache_key(path)
+            .. (need_time_left and "|time_left" or "")
         local cached = _home_book_cache[cache_key]
         if cached then
             return clone_cached_book(cached)
@@ -646,11 +651,22 @@ local function build_data_provider(cfg, dcfg)
                     if pct > 0 and current_page < 1 then current_page = 1 end
                     if current_page > total_pages then current_page = total_pages end
                 end
-                local avg_time = stats and tonumber(stats.avg_time)
-                if not avg_time and stats and current_page and current_page > 0 then
-                    local total_read_time = tonumber(stats.total_read_time or stats.total_time)
-                    if total_read_time and total_read_time > 0 then
-                        avg_time = total_read_time / current_page
+                local avg_time
+                if need_time_left then
+                    local ok_stats, StatsDB = pcall(require, "common/db_stats")
+                    if ok_stats and StatsDB and type(StatsDB.queryBookAveragePageTime) == "function" then
+                        local db_avg_time, db_pages = StatsDB.queryBookAveragePageTime(
+                            path, doc:readSetting("partial_md5_checksum"))
+                        avg_time = db_avg_time
+                        if not total_pages and db_pages and db_pages > 0 then
+                            pages = db_pages
+                            total_pages = db_pages
+                            if pct then
+                                current_page = math.floor(total_pages * pct + 0.5)
+                                if pct > 0 and current_page < 1 then current_page = 1 end
+                                if current_page > total_pages then current_page = total_pages end
+                            end
+                        end
                     end
                 end
                 if avg_time and avg_time > 0 and total_pages and current_page and current_page < total_pages then
@@ -683,6 +699,7 @@ local function build_data_provider(cfg, dcfg)
             authors = authors or "",
             cover_bb = cover_bb,
             percent = pct or 0,
+            percent_finished = pct,
             status = status,
             pages = pages,
             current_page = current_page,
@@ -773,17 +790,21 @@ local function build_data_provider(cfg, dcfg)
         return tbr_cached
     end
 
-    local function get_paths_by_status(status_key, limit)
+    local function get_paths_by_statuses(statuses, limit)
         local hist = get_history()
         local out = {}
         for _i, path in ipairs(hist) do
             local eff = book_status.getEffectiveStatusFromFile(path)
-            if eff == status_key then
+            if statuses[eff] then
                 table.insert(out, path)
                 if #out >= limit then break end
             end
         end
         return out
+    end
+
+    local function get_paths_by_status(status_key, limit)
+        return get_paths_by_statuses({ [status_key] = true }, limit)
     end
 
     local function append_unique_paths(dst, src, limit)
@@ -811,7 +832,8 @@ local function build_data_provider(cfg, dcfg)
         return out
     end
 
-    local function collect_paths_for_source(source_key, limit)
+    local function collect_paths_for_source(source_key, limit, opts)
+        opts = type(opts) == "table" and opts or {}
         local source = source_key
         if source ~= "custom_featured"
                 and source ~= "custom_strip"
@@ -849,7 +871,10 @@ local function build_data_provider(cfg, dcfg)
             end
             return out
         end
-        return get_paths_by_status("reading", lim)
+        local statuses = { reading = true }
+        if opts.filter_unread ~= true then statuses.new = true end
+        if opts.filter_finished ~= true then statuses.complete = true end
+        return get_paths_by_statuses(statuses, lim)
     end
 
     function provider:getFeaturedBook(source_key, order_key)
@@ -858,17 +883,26 @@ local function build_data_provider(cfg, dcfg)
             paths = reverse_copy(paths)
         end
         local path = paths[1]
-        return get_book(path)
+        local module_id = featured_widget_for_source(source_key)
+        local featured_cfg = dcfg and dcfg.modules and dcfg.modules[module_id] or {}
+        local progress_meta = featured_cfg.progress_meta or {}
+        local need_time_left = progress_meta.left == "time_left"
+            or progress_meta.right == "time_left"
+        return get_book(path, need_time_left)
     end
 
-    local function get_strip_paths(source_key, count, order_key)
+    local function get_strip_paths(source_key, count, order_key, component_id)
         local n = tonumber(count) or 5
         if n < 1 then n = 1 end
         local source = source_key
         if source ~= "custom_strip" and source ~= "currently_reading" and source ~= "to_be_read" then
             source = "recently_read"
         end
-        local paths = collect_paths_for_source(source, 5000)
+        local mcfg = dcfg and dcfg.modules and dcfg.modules[component_id] or {}
+        local paths = collect_paths_for_source(source, 5000, {
+            filter_unread = source == "recently_read" and mcfg.filter_unread == true,
+            filter_finished = source == "recently_read" and mcfg.filter_finished == true,
+        })
 
         if source ~= "custom_strip" and normalize_order(order_key) == "reverse" then
             paths = reverse_copy(paths)
@@ -900,7 +934,7 @@ local function build_data_provider(cfg, dcfg)
     end
 
     function provider:getBooksForStrip(source_key, count, order_key, component_id)
-        local source, paths, n = get_strip_paths(source_key, count, order_key)
+        local source, paths, n = get_strip_paths(source_key, count, order_key, component_id)
 
         local offset_key = tostring(component_id or source) .. ":" .. source .. ":" .. normalize_order(order_key)
         local offset = tonumber(strip_offsets[offset_key]) or 0
@@ -925,7 +959,7 @@ local function build_data_provider(cfg, dcfg)
     end
 
     function provider:shiftStrip(source_key, count, order_key, direction, component_id)
-        local source, paths, n = get_strip_paths(source_key, count, order_key)
+        local source, paths, n = get_strip_paths(source_key, count, order_key, component_id)
         if #paths <= n then return false end
         local offset_key = tostring(component_id or source) .. ":" .. source .. ":" .. normalize_order(order_key)
         local cur = tonumber(strip_offsets[offset_key]) or 0
@@ -1607,6 +1641,10 @@ local function build_home_content(menu, dcfg, rows, data_provider)
             _zen_home_context = true,
             _zen_disable_select = true,
             _zen_is_history = source == "recently_read",
+            _zen_after_status_change = function(changed_path)
+                invalidate_home_book_cache(changed_path)
+                M.rebuildActive()
+            end,
         })
         return true
     end

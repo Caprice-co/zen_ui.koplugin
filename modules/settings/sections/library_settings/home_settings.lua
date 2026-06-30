@@ -136,6 +136,10 @@ local function ensure_strip_cfg(dcfg, module_id)
     local mcfg = ensure_module_cfg(dcfg, module_id)
     mcfg.order = normalize_order(mcfg.order)
     if mcfg.interactive == nil then mcfg.interactive = true end
+    if module_id == "strip_recent" then
+        if mcfg.filter_unread == nil then mcfg.filter_unread = false end
+        if mcfg.filter_finished == nil then mcfg.filter_finished = false end
+    end
     if mcfg.two_rows == nil then mcfg.two_rows = false end
     if type(mcfg.count) ~= "number" then mcfg.count = mcfg.two_rows and 8 or 4 end
     if mcfg.two_rows then
@@ -622,6 +626,19 @@ function M.build(ctx)
         }
     end
 
+    local function filter_status_item(mcfg, key, text)
+        return {
+            text = text,
+            checked_func = function()
+                return mcfg[key] == true
+            end,
+            callback = function()
+                mcfg[key] = mcfg[key] ~= true
+                save_home("reinit")
+            end,
+        }
+    end
+
     local function toggle_featured_status_bar(mcfg)
         local enabled = mcfg.show_status_bar ~= true
         mcfg.show_status_bar = enabled
@@ -773,21 +790,6 @@ function M.build(ctx)
                 end,
             },
             {
-                text = _("Two rows"),
-                checked_func = function()
-                    return mcfg.two_rows == true
-                end,
-                callback = function()
-                    mcfg.two_rows = mcfg.two_rows ~= true
-                    if mcfg.two_rows then
-                        mcfg.count = 8
-                    else
-                        mcfg.count = 4
-                    end
-                    save_home("reinit")
-                end,
-            },
-            {
                 text = _("Show book titles"),
                 checked_func = function()
                     return mcfg.show_strip_titles == true
@@ -808,6 +810,21 @@ function M.build(ctx)
                 end,
             },
             interactive_item(mcfg),
+            {
+                text = _("Two rows"),
+                checked_func = function()
+                    return mcfg.two_rows == true
+                end,
+                callback = function()
+                    mcfg.two_rows = mcfg.two_rows ~= true
+                    if mcfg.two_rows then
+                        mcfg.count = 8
+                    else
+                        mcfg.count = 4
+                    end
+                    save_home("reinit")
+                end,
+            },
             {
                 text_func = function()
                     return _("Books shown: ") .. tostring(mcfg.count or 4)
@@ -878,7 +895,7 @@ function M.build(ctx)
         if module_id == "featured_custom" then
             return build_featured_custom_items(mcfg)
         end
-        return {
+        local items = {
             {
                 text = _("Show widget title"),
                 checked_func = function()
@@ -914,6 +931,7 @@ function M.build(ctx)
                 sub_item_table = build_progress_meta_items(mcfg),
             },
         }
+        return items
     end
 
     local function build_strip_widget_items(module_id)
@@ -921,7 +939,7 @@ function M.build(ctx)
         if module_id == "strip_custom" then
             return build_strip_custom_items(mcfg)
         end
-        return {
+        local items = {
             {
                 text = _("Show widget title"),
                 checked_func = function()
@@ -929,21 +947,6 @@ function M.build(ctx)
                 end,
                 callback = function()
                     mcfg.show_module_title = mcfg.show_module_title ~= true
-                    save_home("reinit")
-                end,
-            },
-            {
-                text = _("Two rows"),
-                checked_func = function()
-                    return mcfg.two_rows == true
-                end,
-                callback = function()
-                    mcfg.two_rows = mcfg.two_rows ~= true
-                    if mcfg.two_rows then
-                        mcfg.count = 8
-                    else
-                        mcfg.count = 4
-                    end
                     save_home("reinit")
                 end,
             },
@@ -969,6 +972,21 @@ function M.build(ctx)
             },
             interactive_item(mcfg),
             {
+                text = _("Two rows"),
+                checked_func = function()
+                    return mcfg.two_rows == true
+                end,
+                callback = function()
+                    mcfg.two_rows = mcfg.two_rows ~= true
+                    if mcfg.two_rows then
+                        mcfg.count = 8
+                    else
+                        mcfg.count = 4
+                    end
+                    save_home("reinit")
+                end,
+            },
+            {
                 text_func = function()
                     return _("Books shown: ") .. tostring(mcfg.count or 4)
                 end,
@@ -993,6 +1011,11 @@ function M.build(ctx)
                 sub_item_table = build_order_items(mcfg),
             },
         }
+        if module_id == "strip_recent" then
+            table.insert(items, 3, filter_status_item(mcfg, "filter_unread", _("Hide unread books")))
+            table.insert(items, 4, filter_status_item(mcfg, "filter_finished", _("Hide finished books")))
+        end
+        return items
     end
 
     local function toggle_widget_enabled(cid)

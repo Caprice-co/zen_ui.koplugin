@@ -1,5 +1,7 @@
 local Background = require("common/ui/background")
+local book_status = require("common/book_status")
 local Blitbuffer = require("ffi/blitbuffer")
+local CornerBanner = require("common/ui/corner_banner")
 local Geom = require("ui/geometry")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
 local HorizontalSpan = require("ui/widget/horizontalspan")
@@ -19,6 +21,7 @@ local Font = require("ui/font")
 local Device = require("device")
 local utils = require("common/utils")
 local WidgetResources = require("common/widget_resources")
+local _ = require("gettext")
 
 local M = {}
 M.SIZE = { preferred_pct = 0.20, min_pct = 0.12, max_pct = 0.50, grow_priority = 1 }
@@ -144,6 +147,7 @@ local function apply_strip_badges(frame, book, plugin)
         local cover_badges = type(config) == "table" and type(config.browser_cover_badges) == "table"
             and config.browser_cover_badges or {}
         local show_favorite = cover_badges.show_favorite_badge == true
+        local show_new = cover_badges.show_new_banner == true
         local show_progress = cover_badges.show_mosaic_progress == true
         local show_pages = type(config) == "table"
             and type(config.browser_page_count) == "table"
@@ -310,6 +314,21 @@ local function apply_strip_badges(frame, book, plugin)
                 end
             end
         end
+
+        if show_new and book_status.isNewStatus(book.status, book.percent_finished) then
+            local span = math.floor(base_sz * 2.5)
+            local band_thick = math.floor(span * 0.35)
+            local font_size = math.max(6, math.floor(base_sz * 0.25))
+            CornerBanner.paint(
+                bb, x, x + d.w, y, d.h,
+                span, band_thick, _("New"), font_size, badge_col, badge_fg
+            )
+            if border > 0 then
+                local border_color = self.bordercolor or Blitbuffer.COLOR_BLACK
+                bb:paintRect(x, y, d.w, border, border_color)
+                bb:paintRect(x + d.w - border, y, border, d.h, border_color)
+            end
+        end
     end
 end
 
@@ -429,11 +448,14 @@ function M.build_strip(ctx, source_key)
                 book,
                 max_cover_w,
                 cover_h,
-                { border = 1, background = Blitbuffer.COLOR_LIGHT_GRAY }
+                {
+                    border = 1,
+                    background = Blitbuffer.COLOR_LIGHT_GRAY,
+                    decorate = show_badges and function(frame)
+                        apply_strip_badges(frame, book, rawget(_G, "__ZEN_UI_PLUGIN"))
+                    end or nil,
+                }
             )
-            if show_badges then
-                apply_strip_badges(cover, book, rawget(_G, "__ZEN_UI_PLUGIN"))
-            end
             cover_w = cover_w or max_cover_w
             local cover_size = cover.getSize and cover:getSize() or nil
             local actual_cover_h = (cover_size and cover_size.h) or cover_h

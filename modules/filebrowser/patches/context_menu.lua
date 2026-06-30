@@ -1646,7 +1646,13 @@ local function apply_context_menu()
                                     end
                                 end
                                 UIManager:close(status_dialog)
-                                refresh()
+                                if type(item._zen_after_status_change) == "function" then
+                                    UIManager:nextTick(function()
+                                        item._zen_after_status_change(file)
+                                    end)
+                                else
+                                    refresh()
+                                end
                             end
 
                             local function statusBtn(icon, label, to_status)

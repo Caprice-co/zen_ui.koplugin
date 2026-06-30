@@ -15,6 +15,7 @@ local function apply_browser_cover_badges()
     local Screen         = require("device").screen
     local TextWidget     = require("ui/widget/textwidget")
     local Background     = require("common/ui/background")
+    local CornerBanner   = require("common/ui/corner_banner")
     local book_status    = require("common/book_status")
     local utils          = require("common/utils")
     local _              = require("gettext")
@@ -71,96 +72,6 @@ local function apply_browser_cover_badges()
             end
         end
     end
-
-    local _banner_cache = {}
-
-    -- Diagonal ribbon banner across the top-right corner.
-    -- Renders a narrow band at 45 degrees with label text rotated inside it.
-    -- Uses destination-driven inverse-map blitting from a temp buffer.
-    local function paintCornerBanner(bb, cover_left, cover_right, cover_top, cover_h,
-                                        span, band_thick, label, font_sz,
-                                        fill_color, border_color)
-        local C  = 0.70711  -- cos/sin 45 degrees
-        -- Extend ribbon so ends protrude past cover top/right borders;
-        -- cover-bounds clipping hides the ends cleanly (no visible end-cuts).
-        local tw = math.ceil((span + band_thick * 2) * 1.41422)
-        local th = band_thick
-        if tw <= 0 or th <= 0 then return end
-
-        local bb_type = bb:getType()
-        -- Use actual RGB bytes so distinct colors don't collide in the cache.
-        local _fc = fill_color:getColorRGB32()
-        local cache_key = string.format("%d|%d|%d|%s|%d|%d|%d|%d|%d",
-            tw, th, bb_type, label, font_sz,
-            _fc.r, _fc.g, _fc.b, border_color:getColor8().a)
-        local tmp = _banner_cache[cache_key]
-
-        if not tmp then
-            tmp = Blitbuffer.new(tw, th, bb_type)
-            if not tmp then return end
-
-            -- 1px border on long edges, fill_color interior
-            tmp:paintRectRGB32(0, 0, tw, th, border_color)
-            local bw = 1
-            if bw * 2 < th then
-                tmp:paintRectRGB32(0, bw, tw, th - 2 * bw, fill_color)
-            end
-
-            -- Render text; step font down 1pt at a time until it fits, min 6pt
-            local inner_h = math.max(1, th - bw * 2)
-            local max_w   = math.floor(tw * 0.82)
-            local lbl, lsz
-            local fs = font_sz
-            repeat
-                if lbl and lbl.free then lbl:free() end
-                lbl = TextWidget:new{
-                    text    = label,
-                    face    = Font:getFace("cfont", fs),
-                    bold    = true,
-                    fgcolor = border_color,
-                    padding = 0,
-                }
-                lsz = lbl:getSize()
-                if lsz.w <= max_w and lsz.h <= inner_h then break end
-                fs = fs - 1
-            until fs < 6
-            -- If still too large at minimum size, let it clip rather than disappear
-            -- Clamp offsets: glyph metrics may exceed font_sz (line spacing etc.)
-            local lx = math.max(0, math.floor((tw - lsz.w) / 2))
-            local ly = math.max(0, math.floor((th - lsz.h) / 2))
-            lbl:paintTo(tmp, lx, ly)
-            if lbl.free then lbl:free() end
-
-            _banner_cache[cache_key] = tmp
-        end
-
-        -- Destination-driven inverse-map: for each screen pixel in the ribbon's
-        -- bounding box, reverse-rotate to find the source pixel in tmp.
-        local cx       = cover_right - math.floor(span / 2)
-        local cy       = cover_top   + math.floor(span / 2)
-        local half_box = math.ceil((tw + th) * C / 2) + 1
-        local bb_w     = bb:getWidth()
-        local bb_h     = bb:getHeight()
-        local tw_half  = tw / 2
-        local th_half  = th / 2
-        for dy = cy - half_box, cy + half_box do
-            if dy >= cover_top and dy < cover_top + cover_h and dy >= 0 and dy < bb_h then
-                local dy_rel = dy - cy
-                for dx = cx - half_box, cx + half_box do
-                    if dx >= cover_left and dx < cover_right and dx >= 0 and dx < bb_w then
-                        local dx_rel = dx - cx
-                        -- inverse of +45 deg rotation ("\" band: top border -> right border)
-                        local sx = math.floor(tw_half + (dx_rel + dy_rel) * C)
-                        local sy = math.floor(th_half + (dy_rel - dx_rel) * C)
-                        if sx >= 0 and sx < tw and sy >= 0 and sy < th then
-                            bb:setPixel(dx, dy, tmp:getPixel(sx, sy))
-                        end
-                    end
-                end
-            end
-        end
-    end
-
 
     local function get_upvalue(fn, name)
         if type(fn) ~= "function" then return nil end
@@ -576,7 +487,7 @@ local function apply_browser_cover_badges()
                     -- Font tied to cover size, not band thickness, so it stays small regardless of ribbon scale
                     local font_sz    = math.max(6, math.floor(eff_size * 0.25))
                     local cover_left_new = x + math.floor((self.width - target.dimen.w) / 2)
-                    paintCornerBanner(bb,
+                    CornerBanner.paint(bb,
                         cover_left_new, cover_left_new + target.dimen.w,
                         target.dimen.y, target.dimen.h,
                         span, band_thick, _("New"), font_sz,

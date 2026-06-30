@@ -143,6 +143,64 @@ local function field_set(fields)
     return set
 end
 
+function StatsDB.queryBookAveragePageTime(path, md5)
+    if type(md5) ~= "string" or md5 == "" then
+        local ok_util, util = pcall(require, "util")
+        if not ok_util or not util or type(util.partialMD5) ~= "function" then return nil end
+        local ok_md5, computed_md5 = pcall(util.partialMD5, path)
+        if not ok_md5 then return nil end
+        md5 = computed_md5
+    end
+    if type(md5) ~= "string" or md5 == "" then return nil end
+
+    flush_pending_stats()
+
+    local db_path = DBConn.getStatsDbPath()
+    local conn, err = DBConn.open(db_path)
+    if not conn then
+        logger.warn("zen-ui db_stats: cannot open DB:", err)
+        return nil
+    end
+
+    local settings = G_reader_settings:readSetting("statistics")
+    local max_sec = type(settings) == "table" and tonumber(settings.max_sec) or 120
+    local stmt
+    local ok, result = pcall(function()
+        stmt = conn:prepare([[
+            SELECT count(*), sum(page_duration), (
+                SELECT pages FROM book
+                WHERE md5 = ?
+                ORDER BY last_open DESC
+                LIMIT 1
+            )
+            FROM (
+                SELECT min(sum(duration), ?) AS page_duration
+                FROM page_stat
+                WHERE id_book = (
+                    SELECT id FROM book
+                    WHERE md5 = ?
+                    ORDER BY last_open DESC
+                    LIMIT 1
+                )
+                GROUP BY page
+            );
+        ]])
+        return stmt:reset():bind(md5, max_sec, md5):step()
+    end)
+    if stmt then stmt:close() end
+    conn:close()
+
+    if not ok then
+        logger.warn("zen-ui db_stats: book timing query failed:", result)
+        return nil
+    end
+    local pages = result and tonumber(result[1]) or 0
+    local duration = result and tonumber(result[2]) or 0
+    local total_pages = result and tonumber(result[3]) or nil
+    if pages <= 0 or duration <= 0 then return nil, total_pages end
+    return duration / pages, total_pages
+end
+
 function StatsDB.queryHomeStats(fields)
     local stats = {
         today_pages = 0,
