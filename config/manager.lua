@@ -434,6 +434,69 @@ local function migrate_legacy_updater_keys(cfg)
     return cfg, changed
 end
 
+local function migrate_folder_path_settings(cfg)
+    if type(cfg) ~= "table" then return cfg, false end
+
+    local changed = false
+    if type(cfg.folder_sort) ~= "table" then
+        cfg.folder_sort = {}
+        changed = true
+    end
+    if type(cfg.folder_display_mode) ~= "table" then
+        cfg.folder_display_mode = {}
+        changed = true
+    end
+
+    local g = rawget(_G, "G_reader_settings")
+    if not g then return cfg, changed end
+
+    local removed_legacy = false
+    local valid_display_modes = {
+        mosaic_image = true,
+        list_image_meta = true,
+        list_image_filename = true,
+    }
+
+    local legacy_sort = g:readSetting("zen_ui_folder_sort")
+    if type(legacy_sort) == "table" then
+        for path, entry in pairs(legacy_sort) do
+            if type(path) == "string" and cfg.folder_sort[path] == nil then
+                if type(entry) == "string" then
+                    cfg.folder_sort[path] = { collate = entry, reverse = false }
+                    changed = true
+                elseif type(entry) == "table" and type(entry.collate) == "string" then
+                    cfg.folder_sort[path] = {
+                        collate = entry.collate,
+                        reverse = entry.reverse == true,
+                    }
+                    changed = true
+                end
+            end
+        end
+        g:delSetting("zen_ui_folder_sort")
+        removed_legacy = true
+    end
+
+    local legacy_display = g:readSetting("zen_ui_folder_display_mode")
+    if type(legacy_display) == "table" then
+        for path, mode in pairs(legacy_display) do
+            if type(path) == "string" and cfg.folder_display_mode[path] == nil
+                    and valid_display_modes[mode] then
+                cfg.folder_display_mode[path] = mode
+                changed = true
+            end
+        end
+        g:delSetting("zen_ui_folder_display_mode")
+        removed_legacy = true
+    end
+
+    if removed_legacy then
+        pcall(g.flush, g)
+    end
+
+    return cfg, (changed or removed_legacy)
+end
+
 local function migrate_folder_cover_keys(cfg)
     local g = rawget(_G, "G_reader_settings")
     if not g or type(cfg) ~= "table" then return cfg, false end
@@ -679,9 +742,10 @@ function M.load()
     local cfg = merged_with_defaults(stored)
     local migrated_renamed
     cfg, migrated_renamed = normalize_renamed_keys(cfg)
-    local migrated_group, migrated_updater, migrated_fbc, migrated_bim
+    local migrated_group, migrated_updater, migrated_folder_paths, migrated_fbc, migrated_bim
     cfg, migrated_group   = migrate_legacy_group_view_keys(cfg)
     cfg, migrated_updater = migrate_legacy_updater_keys(cfg)
+    cfg, migrated_folder_paths = migrate_folder_path_settings(cfg)
     cfg, migrated_fbc     = migrate_folder_cover_keys(cfg)
     cfg, migrated_bim     = migrate_bim_folder_cover_keys(cfg)
     local migrated_reader_backup = migrate_reader_footer_backup(cfg)
@@ -690,7 +754,8 @@ function M.load()
     cfg, migrated_changed_defaults = migrate_changed_defaults(cfg)
     if migrated_renamed or migrated_group or migrated_updater or migrated_fbc or migrated_bim
             or migrated_reader_backup or migrated_qs or migrated_file_config
-            or migrated_settings_files or migrated_changed_defaults or migrated_home_lock then
+            or migrated_settings_files or migrated_changed_defaults or migrated_home_lock
+            or migrated_folder_paths then
         M.save(cfg)
     end
     if migrated_file_config then
@@ -710,6 +775,54 @@ function M.save(config)
     f.data = config
     f:flush()
     _current_config = config
+end
+
+function M.moveFolderPathSettings(from_path, to_path)
+    if type(from_path) ~= "string" or type(to_path) ~= "string" then return false end
+
+    local paths = require("common/paths")
+    local function normalize(path)
+        path = paths.normPath(path:gsub("/+$", ""))
+        return path ~= "" and path or "/"
+    end
+
+    local source = normalize(from_path)
+    local destination = normalize(to_path)
+    if source == destination then return false end
+
+    local cfg = M.get()
+    if type(cfg) ~= "table" then cfg = M.load() end
+    local changed = false
+
+    for _i, map_name in ipairs({ "folder_sort", "folder_display_mode" }) do
+        local settings = cfg[map_name]
+        if type(settings) == "table" then
+            local moves = {}
+            for key, value in pairs(settings) do
+                if type(key) == "string" then
+                    local normalized_key = normalize(key)
+                    if normalized_key == source
+                            or normalized_key:sub(1, #source + 1) == source .. "/" then
+                        moves[#moves + 1] = {
+                            from = key,
+                            to = destination .. normalized_key:sub(#source + 1),
+                            value = value,
+                        }
+                    end
+                end
+            end
+            for _j, move in ipairs(moves) do
+                settings[move.from] = nil
+                if settings[move.to] == nil then
+                    settings[move.to] = move.value
+                end
+                changed = true
+            end
+        end
+    end
+
+    if changed then M.save(cfg) end
+    return changed
 end
 
 -- Kept for deletePluginSettings: identifies the legacy G_reader_settings key
