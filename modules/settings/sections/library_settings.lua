@@ -1294,35 +1294,6 @@ function M.build(ctx)
     })
 
     table.insert(items, {
-        text = _("Mark New / updated books as TBR"),
-        checked_func = function()
-            return type(config.group_view) == "table"
-                and config.group_view.mark_new_as_tbr == true
-        end,
-        callback = function(touchmenu_instance)
-            if type(config.group_view) ~= "table" then config.group_view = {} end
-            if config.group_view.mark_new_as_tbr == true then
-                config.group_view.mark_new_as_tbr = false
-                plugin:saveConfig()
-                if touchmenu_instance then touchmenu_instance:updateItems() end
-                return
-            end
-
-            local ConfirmBox = require("ui/widget/confirmbox")
-            UIManager:show(ConfirmBox:new{
-                text = _("This will overwrite the status of new or updated books to To Be Read (abandoned)."),
-                ok_text = _("Enable"),
-                ok_callback = function()
-                    config.group_view.mark_new_as_tbr = true
-                    plugin:saveConfig()
-                    refresh_filechooser()
-                    if touchmenu_instance then touchmenu_instance:updateItems() end
-                end,
-            })
-        end,
-    })
-
-    table.insert(items, {
         text = _("Allow delete"),
         checked_func = function()
             return type(config.context_menu) == "table"

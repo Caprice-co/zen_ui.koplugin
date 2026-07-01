@@ -138,6 +138,7 @@ local function ensure_strip_cfg(dcfg, module_id)
     if mcfg.interactive == nil then mcfg.interactive = true end
     if module_id == "strip_recent" then
         if mcfg.filter_unread == nil then mcfg.filter_unread = false end
+        if mcfg.filter_tbr == nil then mcfg.filter_tbr = false end
         if mcfg.filter_finished == nil then mcfg.filter_finished = false end
     end
     if mcfg.two_rows == nil then mcfg.two_rows = false end
@@ -1013,7 +1014,8 @@ function M.build(ctx)
         }
         if module_id == "strip_recent" then
             table.insert(items, 3, filter_status_item(mcfg, "filter_unread", _("Hide unread books")))
-            table.insert(items, 4, filter_status_item(mcfg, "filter_finished", _("Hide finished books")))
+            table.insert(items, 4, filter_status_item(mcfg, "filter_tbr", _("Hide TBR books")))
+            table.insert(items, 5, filter_status_item(mcfg, "filter_finished", _("Hide finished books")))
         end
         return items
     end

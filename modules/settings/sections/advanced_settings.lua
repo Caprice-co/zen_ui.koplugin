@@ -114,6 +114,48 @@ function M.build(ctx)
     })
 
     table.insert(items, {
+        text = _("Mark New / updated books as TBR"),
+        checked_func = function()
+            return type(config.group_view) == "table"
+                and config.group_view.mark_new_as_tbr == true
+        end,
+        callback = function(touchmenu_instance)
+            if type(config.group_view) ~= "table" then config.group_view = {} end
+            if config.group_view.mark_new_as_tbr == true then
+                config.group_view.mark_new_as_tbr = false
+                plugin:saveConfig()
+                if touchmenu_instance then touchmenu_instance:updateItems() end
+                return
+            end
+
+            local ConfirmBox = require("ui/widget/confirmbox")
+            UIManager:show(ConfirmBox:new{
+                text = _("This will overwrite the status of ALL new and currently unread books to To Be Read."),
+                ok_text = _("Enable"),
+                ok_callback = function()
+                    config.group_view.mark_new_as_tbr = true
+                    local FileChooser = require("ui/widget/filechooser")
+                    if type(FileChooser.show_filter) ~= "table" then
+                        FileChooser.show_filter = {}
+                    end
+                    FileChooser.show_filter.status = nil
+                    G_reader_settings:saveSetting("show_filter", FileChooser.show_filter)
+                    pcall(G_reader_settings.flush, G_reader_settings)
+                    plugin:saveConfig()
+
+                    local ok, FileManager = pcall(require, "apps/filemanager/filemanager")
+                    local fm = ok and FileManager and FileManager.instance
+                    if fm and fm.file_chooser
+                            and type(fm.file_chooser.refreshPath) == "function" then
+                        pcall(fm.file_chooser.refreshPath, fm.file_chooser)
+                    end
+                    if touchmenu_instance then touchmenu_instance:updateItems() end
+                end,
+            })
+        end,
+    })
+
+    table.insert(items, {
         text = _("Show hidden files"),
         checked_func = function()
             return type(config.developer) == "table"

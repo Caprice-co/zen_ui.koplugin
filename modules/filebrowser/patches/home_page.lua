@@ -239,6 +239,7 @@ local function ensure_strip_module_cfg(dcfg, module_id)
     if mcfg.interactive == nil then mcfg.interactive = true end
     if module_id == "strip_recent" then
         if mcfg.filter_unread == nil then mcfg.filter_unread = false end
+        if mcfg.filter_tbr == nil then mcfg.filter_tbr = false end
         if mcfg.filter_finished == nil then mcfg.filter_finished = false end
     end
     if mcfg.two_rows == nil then mcfg.two_rows = false end
@@ -873,6 +874,7 @@ local function build_data_provider(cfg, dcfg)
         end
         local statuses = { reading = true }
         if opts.filter_unread ~= true then statuses.new = true end
+        if opts.filter_tbr ~= true then statuses.abandoned = true end
         if opts.filter_finished ~= true then statuses.complete = true end
         return get_paths_by_statuses(statuses, lim)
     end
@@ -901,6 +903,7 @@ local function build_data_provider(cfg, dcfg)
         local mcfg = dcfg and dcfg.modules and dcfg.modules[component_id] or {}
         local paths = collect_paths_for_source(source, 5000, {
             filter_unread = source == "recently_read" and mcfg.filter_unread == true,
+            filter_tbr = source == "recently_read" and mcfg.filter_tbr == true,
             filter_finished = source == "recently_read" and mcfg.filter_finished == true,
         })
 
