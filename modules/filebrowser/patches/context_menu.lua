@@ -1650,6 +1650,7 @@ local function apply_context_menu()
                             local status_dialog
 
                             local function setStatus(to_status)
+                                book_status.acknowledgeNewVersion(doc_settings)
                                 if to_status == nil then
                                     summary.status = nil
                                     doc_settings:delSetting("percent_finished")

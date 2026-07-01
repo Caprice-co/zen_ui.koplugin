@@ -99,6 +99,13 @@ local function normalize_renamed_keys(cfg)
         changed = true
     end
 
+    if type(cfg.group_view) == "table"
+            and cfg.group_view.mark_new_as_tbr ~= nil then
+        cfg.group_view.include_new_in_tbr = cfg.group_view.mark_new_as_tbr == true
+        cfg.group_view.mark_new_as_tbr = nil
+        changed = true
+    end
+
     return cfg, changed
 end
 

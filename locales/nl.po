@@ -969,6 +969,12 @@ msgstr "Afbeelding: "
 msgid "Image: none"
 msgstr "Afbeelding: geen"
 
+msgid "Include New books in To Be Read"
+msgstr "Nieuwe boeken opnemen in Te lezen"
+
+msgid "New includes unread books and books modified since they were last opened."
+msgstr "Nieuw omvat ongelezen boeken en boeken die sinds de laatste opening zijn gewijzigd."
+
 msgid "Incompatible plugins have been disabled:"
 msgstr "Incompatibele plugins zijn uitgeschakeld:"
 

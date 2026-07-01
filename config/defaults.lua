@@ -247,7 +247,7 @@ local defaults = {
         rows = { "today", "this_month", "this_year", "all_time", "library" },
     },
     group_view = {
-        mark_new_as_tbr = false,
+        include_new_in_tbr = false,
         display_mode = {
             authors = "list_image_meta",
             series = "list_image_meta",

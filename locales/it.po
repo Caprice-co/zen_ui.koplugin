@@ -969,6 +969,12 @@ msgstr "Immagine: "
 msgid "Image: none"
 msgstr "Immagine: nessuna"
 
+msgid "Include New books in To Be Read"
+msgstr "Includi i libri nuovi in Da leggere"
+
+msgid "New includes unread books and books modified since they were last opened."
+msgstr "Nuovo include i libri non letti e quelli modificati dall'ultima apertura."
+
 msgid "Incompatible plugins have been disabled:"
 msgstr "Plugin incompatibili disabilitati:"
 

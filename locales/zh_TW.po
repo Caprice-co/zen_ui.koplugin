@@ -969,6 +969,12 @@ msgstr "圖片: "
 msgid "Image: none"
 msgstr "圖片: 無"
 
+msgid "Include New books in To Be Read"
+msgstr "在「待讀」中包含新書"
+
+msgid "New includes unread books and books modified since they were last opened."
+msgstr "「新」包括未讀書籍，以及自上次開啟後修改過的書籍。"
+
 msgid "Incompatible plugins have been disabled:"
 msgstr "不相容的外掛程式已被停用："
 

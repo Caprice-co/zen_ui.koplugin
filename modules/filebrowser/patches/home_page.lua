@@ -793,10 +793,12 @@ local function build_data_provider(cfg, dcfg)
         local stable_current_page = nil
         local stable_current_label = nil
         local stable_last_label = nil
+        local doc_settings = nil
         local ok_ds, DocSettings = pcall(require, "docsettings")
         if ok_ds and DocSettings and DocSettings:hasSidecarFile(path) then
             local ok_doc, doc = pcall(DocSettings.open, DocSettings, path)
             if ok_doc and doc then
+                doc_settings = doc
                 pct = doc:readSetting("percent_finished")
                 local summary = doc:readSetting("summary")
                 status = summary and summary.status
@@ -847,6 +849,9 @@ local function build_data_provider(cfg, dcfg)
                 end
             end
         end
+        local computed_status = book_status.getComputedStatus(
+            path, status, pct, doc_settings
+        )
 
         if not title or title == "" then
             title = (path:match("([^/]+)$") or path):gsub("%.[^%.]+$", "")
@@ -859,7 +864,7 @@ local function build_data_provider(cfg, dcfg)
             cover_bb = cover_bb,
             percent = pct or 0,
             percent_finished = pct,
-            status = status,
+            status = computed_status,
             pages = pages,
             current_page = current_page,
             time_left_secs = time_left_secs,

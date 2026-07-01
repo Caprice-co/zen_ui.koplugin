@@ -450,17 +450,21 @@ local function apply_browser_list_item_layout()
             local percent_finished = book_info.percent_finished
             local status = book_info.status
             local pages = book_info.pages or bookinfo.pages
-            local is_new = book_status.isNewStatus(status, percent_finished)
+            local effective_status = book_status.getComputedStatus(
+                filepath, status, percent_finished
+            )
+            local is_new = effective_status == "new"
+            self._zen_effective_status = effective_status
 
             local status_label, progress_str
-            if status == "complete" then
+            if is_new then
+                status_label = _("New")
+            elseif effective_status == "complete" then
                 status_label = _("Finished")
                 progress_str = "\u{F012C}"  -- MD check
-            elseif status == "abandoned" then
+            elseif effective_status == "abandoned" then
                 status_label = _("To Be Read")
                 progress_str = "\u{F0150}"  -- MD Clock icon
-            elseif is_new then
-                status_label = _("New")
             elseif percent_finished then
                 -- has recorded progress
                 status_label = string.format(_("%d%% Read"), math.floor(100 * percent_finished))

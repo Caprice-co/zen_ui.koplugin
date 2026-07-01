@@ -96,6 +96,9 @@ local function apply_browser_cover_badges()
             function MosaicMenuItem:update(...)
                 orig_update(self, ...)
                 if self.is_go_up or (not self.filepath) then return end
+                self._zen_effective_status = book_status.getComputedStatus(
+                    self.filepath, self.status, self.percent_finished
+                )
 
                 local show_fav_badge = _plugin
                     and _plugin.config
@@ -259,6 +262,9 @@ local function apply_browser_cover_badges()
                 and _plugin.config.browser_cover_badges.badge_color
             local badge_is_dark = _bc == nil or (type(_bc) == "table" and _bc[1] == 0 and _bc[2] == 0 and _bc[3] == 0)
             local badge_fg = badge_is_dark and Blitbuffer.COLOR_WHITE or Blitbuffer.COLOR_BLACK
+            local effective_status = self._zen_effective_status
+                or book_status.getEffectiveStatus(self.status, self.percent_finished)
+            local is_new = effective_status == "new"
 
             local cover_left = x + math.floor((self.width - target.dimen.w) / 2)
             local cov_w = target.dimen.w - 2 * border
@@ -269,7 +275,7 @@ local function apply_browser_cover_badges()
                 and _plugin.config
                 and type(_plugin.config.browser_cover_badges) == "table"
                 and _plugin.config.browser_cover_badges.dim_finished_books == true
-                and self.status == "complete"
+                and effective_status == "complete"
             if cov_w > 0 and cov_h > 0 then
                 if dim_finished then
                     bb:lightenRect(cover_left + border, target.dimen.y + border, cov_w, cov_h, 0.4)
@@ -321,7 +327,7 @@ local function apply_browser_cover_badges()
                 and _plugin.config
                 and type(_plugin.config.browser_cover_badges) == "table"
                 and _plugin.config.browser_cover_badges.show_native_progress_bar == true
-            if self.show_progress_bar and show_native then
+            if self.show_progress_bar and show_native and not is_new then
                 local progress_widget = uv("progress_widget")
                 if progress_widget then
                     local margin  = math.floor((corner_mark_size - progress_widget.height) / 2)
@@ -334,7 +340,7 @@ local function apply_browser_cover_badges()
                     local pos_y = y + self.height
                         - math.ceil((self.height - target.height) / 2)
                         - corner_mark_size + margin
-                    progress_widget.fillcolor = (self.status == "abandoned")
+                    progress_widget.fillcolor = (effective_status == "abandoned")
                         and Blitbuffer.COLOR_GRAY_6 or Blitbuffer.COLOR_BLACK
                     progress_widget:setPercentage(self.percent_finished)
                     progress_widget:paintTo(bb, pos_x, pos_y)
@@ -348,9 +354,10 @@ local function apply_browser_cover_badges()
                 and _plugin.config.browser_cover_badges.show_mosaic_progress == true
 
             if show_badge and self.filepath then
-                local do_check = (self.status == "complete") and not dim_finished
-                local do_pause = (self.status == "abandoned")
-                local do_pct   = not dim_finished and not do_check and not do_pause and self.percent_finished ~= nil
+                local do_check = (effective_status == "complete") and not dim_finished
+                local do_pause = (effective_status == "abandoned")
+                local do_pct   = not is_new and not dim_finished and not do_check
+                    and not do_pause and self.percent_finished ~= nil
 
                 if do_check or do_pause or do_pct then
                     local eff_size = math.floor(math.max(corner_mark_size, math.floor((target.dimen.w or 0) * 0.14)) * _badge_scale)
@@ -472,14 +479,13 @@ local function apply_browser_cover_badges()
                 bb:paintBorder(target.dimen.x + ix, target.dimen.y, d_w, d_h, 1)
             end
 
-            -- 8. "New" corner ribbon for never-opened books
+            -- 8. "New" corner ribbon for unread or modified books
             local show_new_banner = in_fm and _plugin
                 and _plugin.config
                 and type(_plugin.config.browser_cover_badges) == "table"
                 and _plugin.config.browser_cover_badges.show_new_banner == true
             if show_new_banner and self.filepath and not self.is_go_up and not self.is_directory
                     and self.bookinfo_found then
-                local is_new = book_status.isNewStatus(self.status, self.percent_finished)
                 if is_new then
                     local eff_size   = math.floor(math.max(corner_mark_size, math.floor((target.dimen.w or 0) * 0.14)) * _badge_scale)
                     local span       = math.floor(eff_size * 2.5)
@@ -522,7 +528,10 @@ local function apply_browser_cover_badges()
                 and _plugin.config
                 and type(_plugin.config.browser_cover_badges) == "table"
                 and _plugin.config.browser_cover_badges.dim_finished_books == true
-            if dim_finished and self.status == "complete" and self.width and self.height then
+            if dim_finished
+                    and (self._zen_effective_status
+                        or book_status.getEffectiveStatus(self.status, self.percent_finished)) == "complete"
+                    and self.width and self.height then
                 bb:lightenRect(x, y, self.width, self.height, 0.3)
             end
         end

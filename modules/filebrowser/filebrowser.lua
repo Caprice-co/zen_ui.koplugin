@@ -48,7 +48,6 @@ local PATCH_MODULES = {
     home_page = "modules/filebrowser/patches/home_page",
     status_on_open = "modules/filebrowser/patches/status_on_open",
     library_background = "modules/filebrowser/patches/library_background",
-    auto_tbr = "modules/filebrowser/patches/auto_tbr",
 }
 
 local function is_feature_enabled(plugin, key)
@@ -248,11 +247,6 @@ function M.init(logger, plugin)
                 logger.warn("zen-ui: grouped filebrowser patch load failed", feature, err)
             end
         end
-    end
-
-    local auto_tbr_fn = load_patch("auto_tbr")
-    if auto_tbr_fn then
-        run_feature(logger, plugin, "auto_tbr", auto_tbr_fn)
     end
 
     initialized = true

@@ -1,5 +1,4 @@
 local Background = require("common/ui/background")
-local book_status = require("common/book_status")
 local Blitbuffer = require("ffi/blitbuffer")
 local CornerBanner = require("common/ui/corner_banner")
 local Geom = require("ui/geometry")
@@ -186,9 +185,10 @@ local function apply_strip_badges(frame, book, plugin)
         -- progress/status: top-right pentagon
         local pct    = type(book.percent) == "number" and book.percent or 0
         local status = book.status
+        local is_new = status == "new"
         local do_check = (status == "complete")
         local do_pause = (status == "abandoned")
-        local do_pct   = not do_check and not do_pause and pct > 0
+        local do_pct   = not is_new and not do_check and not do_pause and pct > 0
 
         if show_progress and (do_check or do_pause or do_pct) then
             local bw  = math.floor(base_sz * 1.2)
@@ -315,7 +315,7 @@ local function apply_strip_badges(frame, book, plugin)
             end
         end
 
-        if show_new and book_status.isNewStatus(book.status, book.percent_finished) then
+        if show_new and is_new then
             local span = math.floor(base_sz * 2.5)
             local band_thick = math.floor(span * 0.35)
             local font_size = math.max(6, math.floor(base_sz * 0.25))

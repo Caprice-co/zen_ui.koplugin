@@ -232,12 +232,17 @@ function M.build(ctx, source_key)
     local status_gap = status_h > 0 and math.max(1, math.floor(col_h * 0.015)) or 0
 
     -- Progress bar anchored to bottom of right column
-    local progress_percent = book.percent
-    if book.stable_current_page and book.stable_pages and book.stable_pages > 0 then
+    local progress_percent = book.status == "new" and 0 or book.percent
+    if book.status ~= "new"
+            and book.stable_current_page and book.stable_pages and book.stable_pages > 0 then
         progress_percent = book.stable_current_page / book.stable_pages
     end
     local pct = math.floor((progress_percent or 0) * 100 + 0.5)
-    local left_progress_text, right_progress_text = build_progress_text(book, pct, module_cfg.progress_meta)
+    local left_progress_text, right_progress_text = "", ""
+    if book.status ~= "new" then
+        left_progress_text, right_progress_text =
+            build_progress_text(book, pct, module_cfg.progress_meta)
+    end
     local has_progress_text = left_progress_text ~= "" or right_progress_text ~= ""
     local progress_h = math.max(1, math.floor(height * 0.022))
     local stats_text_h = 0
@@ -249,7 +254,7 @@ function M.build(ctx, source_key)
     local bar_h = math.max(progress_h, stats_text_h)
 
     local progress_row
-    if bar_h > 0 then
+    if bar_h > 0 and book.status ~= "new" then
         if has_progress_text then
             local lw = TextWidget:new{ text = left_progress_text, face = stats_face, fgcolor = Blitbuffer.COLOR_BLACK }
             local rw = TextWidget:new{ text = right_progress_text, face = stats_face, fgcolor = Blitbuffer.COLOR_BLACK }

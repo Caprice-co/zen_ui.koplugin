@@ -70,6 +70,11 @@ function M.init(logger, plugin)
         run_feature(logger, plugin, "book_status", book_status_fn)
     end
 
+    local status_on_open_fn = load_patch("status_on_open")
+    if status_on_open_fn then
+        run_feature(logger, plugin, "status_on_open", status_on_open_fn)
+    end
+
     -- Always apply: replace koreader.png fallback screensaver with zen_ui.svg
     local screensaver_cover_fn = load_patch("screensaver_cover")
     if screensaver_cover_fn then

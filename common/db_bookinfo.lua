@@ -192,8 +192,7 @@ function M.getGroupedBySeries()
     return groups
 end
 
--- Returns a flat list of file paths whose sidecar summary.status == "abandoned"
--- (displayed in the UI as "To Be Read").
+-- Returns explicit TBR books plus computed-New books when configured.
 function M.getTBRBooks()
     if not bimOk then
         logger.warn("zen-ui automatic_series_grouping: BookInfoManager not available")
@@ -250,23 +249,25 @@ function M.getTBRBooks()
     if not ok_ds then return {} end
 
     local BookStatus = require("common/book_status")
+    local include_new = BookStatus.includeNewInTBREnabled()
     local result = {}
     for _i, filepath in ipairs(candidates) do
         if DocSettings:hasSidecarFile(filepath) then
             local ok3, doc = pcall(DocSettings.open, DocSettings, filepath)
             if ok3 and doc then
                 local summary = doc:readSetting("summary")
-                local status = BookStatus.autoMarkNewBookAsTBR(
-                    filepath,
-                    summary and summary.status,
-                    doc:readSetting("percent_finished"),
-                    doc
+                local status = summary and summary.status
+                status = BookStatus.migrateLegacyMarker(filepath, status, doc)
+                local effective_status = BookStatus.getComputedStatus(
+                    filepath, status, doc:readSetting("percent_finished"), doc
                 )
-                if status == "abandoned" then
+                if status == "abandoned"
+                        or (include_new and effective_status == "new"
+                            and not BookStatus.isImageFile(filepath)) then
                     table.insert(result, filepath)
                 end
             end
-        elseif BookStatus.autoMarkNewBookAsTBR(filepath) == "abandoned" then
+        elseif include_new and not BookStatus.isImageFile(filepath) then
             table.insert(result, filepath)
         end
     end
