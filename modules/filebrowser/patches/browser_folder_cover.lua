@@ -713,7 +713,8 @@ local function apply_browser_folder_cover()
             local border = Folder.face.border_size
             local max_w = item.width - 2 * border
             local eff_h = getEffectiveMosaicHeight(item)
-            local bh = eff_h - 2 * border
+            local underline_reserve = rawget(MosaicMenuItem, "_zen_uniform_underline_reserve") or 0
+            local bh = eff_h - 2 * border - underline_reserve
             local portrait_w, portrait_h = Cover.calcDims(max_w, bh)
             local dimen = { w = portrait_w + 2 * border, h = portrait_h + 2 * border }
             local centered_top = math.floor((eff_h - dimen.h) / 2)

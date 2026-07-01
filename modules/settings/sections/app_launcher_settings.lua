@@ -6,7 +6,6 @@ local IconItem = require("common/ui/icon_menu_item")
 
 local Model = require("modules/menu/app_launcher/model")
 local PluginScan = require("modules/menu/app_launcher/plugin_scan")
-local ActionFilter = require("modules/menu/app_launcher/action_filter")
 
 local M = {}
 local DEFAULT_ENTRY_ICON = "lightning"
@@ -420,9 +419,6 @@ function M.build(ctx)
         local dispatch_items = {}
         local caller = {}
         Dispatcher:addSubMenu(caller, dispatch_items, entry, "action")
-        if cfg.hide_reader_actions_in_library == true then
-            ActionFilter.filter_dispatch_menu(dispatch_items)
-        end
         wrap_dispatch_callbacks(dispatch_items, caller, function(touch_menu)
             sync_action_label(entry)
             if is_draft_entry(entry) then
