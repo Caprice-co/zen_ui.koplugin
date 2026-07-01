@@ -94,6 +94,142 @@ local function cache_home_book(key, book)
     end
 end
 
+-- Home-screen widgets (featured/strip) can render covers much larger than the
+-- file browser's list/mosaic cells. BookInfoManager's cache only ever grows a
+-- cached cover, never shrinks it, so a cover first cached for a small list row
+-- stays small (and gets pixelated when upscaled here) until something asks for
+-- bigger. A third of the screen's linear size comfortably covers the largest
+-- home-screen cover (the featured widget); extraction is still bounded by the
+-- source cover's own resolution, so this never costs more than the book has.
+-- Returns the {max_cover_w, max_cover_h} spec table to extract/cache covers at
+-- for home-screen display, derived from the current screen size.
+local function home_cover_specs()
+    local Screen = require("device").screen
+    return { max_cover_w = math.floor(Screen:getWidth() / 3), max_cover_h = math.floor(Screen:getHeight() / 3) }
+end
+
+-- cover_sizetag stores the native (original) image dimensions, e.g. "600x900".
+-- cover_w/cover_h are the actual cached bitmap size after scaling to fit whatever
+-- spec was used at extraction time. To decide whether a larger home-screen spec
+-- would produce a bigger result: compute what getCachedCoverSize would yield at
+-- our spec, then compare that against what is currently cached.
+local function home_cover_too_small(bi, specs)
+    if not bi.cover_w or not bi.cover_h then return true end
+    local img_w, img_h = tostring(bi.cover_sizetag or ""):match("(%d+)x(%d+)")
+    if not img_w then return true end
+    img_w, img_h = tonumber(img_w), tonumber(img_h)
+    local max_w, max_h = specs.max_cover_w, specs.max_cover_h
+    local target_w, target_h
+    if img_w > max_w or img_h > max_h then
+        local scale = math.min(max_w / img_w, max_h / img_h)
+        target_w = math.floor(img_w * scale)
+        target_h = math.floor(img_h * scale)
+    else
+        target_w, target_h = img_w, img_h
+    end
+    return target_w > bi.cover_w or target_h > bi.cover_h
+end
+
+local _pending_cover_upgrade_paths = {}
+local _cover_upgrade_scheduled = false
+-- Paths currently being processed by an extractInBackground() subprocess we
+-- launched. A book mid-extraction still reads as "invalid" from the DB (its
+-- row isn't written until its turn in the batch completes), so a rebuild that
+-- runs while a batch is still in flight must not re-queue books already in
+-- that batch -- extractInBackground() unconditionally kills any previous
+-- subprocess before starting a new one, so requeuing one slow book partway
+-- through a batch was terminating the whole batch and orphaning the rest.
+local _inflight_cover_upgrade_paths = {}
+
+-- Takes everything queued in _pending_cover_upgrade_paths and launches a
+-- single extractInBackground() batch for them at home-screen cover size, then
+-- polls until each path's extraction completes (or the subprocess dies),
+-- invalidating that book's home-cache entry and triggering a home rebuild as
+-- results land.
+local function flush_cover_upgrade_queue()
+    _cover_upgrade_scheduled = false
+    local paths = {}
+    for path in pairs(_pending_cover_upgrade_paths) do
+        paths[#paths + 1] = path
+    end
+    _pending_cover_upgrade_paths = {}
+    if #paths == 0 then return end
+
+    local ok_bim, BookInfoManager = pcall(require, "bookinfomanager")
+    if not ok_bim or not BookInfoManager then
+        logger.warn("zen-ui home: bookinfomanager require failed, cannot upgrade covers")
+        return
+    end
+
+    local specs = home_cover_specs()
+    local files = {}
+    for _i, path in ipairs(paths) do
+        files[#files + 1] = { filepath = path, cover_specs = specs }
+        _inflight_cover_upgrade_paths[path] = true
+    end
+
+    local UIManager = require("ui/uimanager")
+    local launched = BookInfoManager:extractInBackground(files)
+    if not launched then
+        for _i, path in ipairs(paths) do
+            _inflight_cover_upgrade_paths[path] = nil
+        end
+        return
+    end
+
+    local waiting = {}
+    for _i, path in ipairs(paths) do
+        waiting[path] = true
+    end
+
+    -- Poll per-path completion (mirrors covermenu.lua's items_update_action)
+    -- rather than waiting for the whole subprocess to exit: a single batch can
+    -- contain several books, and if one of them crashes the subprocess, the
+    -- books already extracted before the crash must still get picked up
+    -- instead of being stuck waiting on the ones that never finished.
+    local function poll()
+        local is_still_extracting = BookInfoManager:isExtractingInBackground()
+        local any_done = false
+        for path in pairs(waiting) do
+            local bi = BookInfoManager:getBookInfo(path, false)
+            if bi and bi.cover_fetched then
+                waiting[path] = nil
+                _inflight_cover_upgrade_paths[path] = nil
+                invalidate_home_book_cache(path)
+                any_done = true
+            end
+        end
+        if any_done and M.isActiveOnTop() and _home_menu and _home_menu._home_rebuild then
+            _home_menu:_home_rebuild()
+        end
+        if next(waiting) and is_still_extracting then
+            UIManager:scheduleIn(1, poll)
+        else
+            -- Either fully done, or the subprocess is gone and some paths
+            -- never got their turn (crashed/killed). Release those so a
+            -- future visit to the home screen can requeue and retry them.
+            for path in pairs(waiting) do
+                _inflight_cover_upgrade_paths[path] = nil
+            end
+        end
+    end
+    UIManager:scheduleIn(1, poll)
+end
+
+-- Adds `path` to the pending cover-upgrade queue (unless it's already
+-- pending or mid-extraction) and schedules a debounced
+-- flush_cover_upgrade_queue() call so several books queued in quick
+-- succession are batched into one extraction run.
+local function queue_cover_upgrade(path)
+    if type(path) ~= "string" or path == "" then return end
+    if _pending_cover_upgrade_paths[path] or _inflight_cover_upgrade_paths[path] then return end
+    _pending_cover_upgrade_paths[path] = true
+    if not _cover_upgrade_scheduled then
+        _cover_upgrade_scheduled = true
+        require("ui/uimanager"):scheduleIn(0.3, flush_cover_upgrade_queue)
+    end
+end
+
 local function refresh_shared_state()
     if _zen_plugin then
         _zen_shared = SharedState.restore(_zen_plugin) or _zen_shared
@@ -620,15 +756,32 @@ local function build_data_provider(cfg, dcfg)
         local ok_bim, BookInfoManager = pcall(require, "bookinfomanager")
         local cover_bb, title, authors, pages, description
         if ok_bim and BookInfoManager then
+            -- get_cover=true also matches a directory/unsupported-file placeholder
+            -- object (ignore_cover='Y', _no_provider/_is_directory set) that's never
+            -- queueable; real books fall through to the branches below.
             local bi = BookInfoManager:getBookInfo(path, true)
             if bi then
                 title = bi.title
                 authors = bi.authors
                 pages = bi.pages
                 description = bi.description
-                if bi.cover_bb and bi.has_cover and bi.cover_fetched and not bi.ignore_cover then
-                    cover_bb = bi.cover_bb:copy()
+            end
+            if bi and bi.cover_bb and bi.has_cover and bi.cover_fetched and not bi.ignore_cover then
+                cover_bb = bi.cover_bb:copy()
+                -- Cached cover may be too small (e.g. extracted for a small
+                -- list row); queue a background re-extraction at full size
+                -- and use today's (possibly upscaled) cover in the meantime.
+                if home_cover_too_small(bi, home_cover_specs()) then
+                    queue_cover_upgrade(path)
                 end
+            elseif bi and (bi.cover_fetched or bi.ignore_cover) then
+                -- Extraction was already tried and found no usable cover (or the
+                -- user chose to ignore it): nothing to gain from retrying.
+            else
+                -- Never extracted at all (fresh cache, or only metadata was ever
+                -- fetched): queue a first extraction at home-screen size instead
+                -- of waiting for the file browser to stumble onto this book.
+                queue_cover_upgrade(path)
             end
         end
 
