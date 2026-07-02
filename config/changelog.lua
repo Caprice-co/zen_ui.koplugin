@@ -145,5 +145,10 @@ return {
         "Fixed a bug in reader bottom status bar on starting KOReader with last file",
         "Bug fixes"
     },
+    ["2.2.1"] = {
+        "Fixed a bug with per folder display modes not applying",
+        "Fixed a bug with per folder display mode not showing on real folders",
+        "Fixed a bug multi page automatic series folders",
+    },
 
 }

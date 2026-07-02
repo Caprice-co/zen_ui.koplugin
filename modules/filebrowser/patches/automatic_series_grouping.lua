@@ -402,6 +402,16 @@ local function apply_automatic_series_grouping()
 
         local items = clone_series_items(group_item.series_items)
         local parent_path = file_chooser.path
+        local parent_item_index
+        for index, item in ipairs(file_chooser.item_table or {}) do
+            if item == group_item then
+                parent_item_index = index
+                break
+            end
+        end
+        if not parent_item_index and file_chooser.path_items then
+            parent_item_index = file_chooser.path_items[parent_path]
+        end
         self:sortSeriesItems(items, group_item, file_chooser)
         local display_api = rawget(_G, "__ZEN_FOLDER_DISPLAY_MODE")
         local display_key = group_item._zen_sort_key or group_item.path
@@ -416,6 +426,7 @@ local function apply_automatic_series_grouping()
             parent_path = parent_path,
             group_item = group_item,
             sort_key = group_item._zen_sort_key or group_item.path,
+            parent_item_index = parent_item_index,
         }
 
         local up_item_already_present = items[1] and items[1].is_go_up
@@ -564,6 +575,10 @@ local function apply_automatic_series_grouping()
             end
             if current_series_group then
                 current_series_group.should_restore_focus = true
+                if parent_path and current_series_group.parent_item_index
+                        and file_chooser.path_items then
+                    file_chooser.path_items[parent_path] = current_series_group.parent_item_index
+                end
             end
         else
             current_series_group = nil
@@ -582,7 +597,15 @@ local function apply_automatic_series_grouping()
         end
 
         if file_chooser.item_table.is_in_series_view then
-            return old_updateItems(file_chooser, ...)
+            -- The virtual folder keeps file_chooser.path at the parent dir, so the
+            -- base updateItems would overwrite path_items[parent] with the virtual
+            -- folder's page index. Snapshot and restore it so exiting the group
+            -- returns the parent listing to its original page/focus.
+            local pi = file_chooser.path_items
+            local saved = pi and pi[file_chooser.path]
+            local ret = old_updateItems(file_chooser, ...)
+            if pi then pi[file_chooser.path] = saved end
+            return ret
         end
 
         if current_series_group and current_series_group.should_restore_focus then
