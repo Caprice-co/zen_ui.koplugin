@@ -117,6 +117,34 @@ function M.init(logger, plugin)
         end
     end
 
+    -- Reconcile night mode after a crash. On HW-invert devices (e.g. Kindle) the
+    -- framebuffer EPDC inversion flag persists at the OS level across restarts,
+    -- but G_reader_settings.night_mode is only flushed on a clean exit. A crash
+    -- leaves the real HW flag and the saved setting out of sync, so the screen
+    -- can be dark while the toggle reads unchecked (or vice versa) with no way to
+    -- recover. Treat the saved setting as the source of truth and re-write the HW
+    -- flag to match.
+    if Device.canHWInvert and Device:canHWInvert() then
+        local Screen = Device.screen
+        if type(Screen.getHWNightmode) == "function"
+            and type(Screen.setHWNightmode) == "function" then
+            local want = G_reader_settings:isTrue("night_mode")
+            local ok_hw, hw = pcall(Screen.getHWNightmode, Screen)
+            if ok_hw and hw ~= want then
+                Screen.night_mode = want
+                pcall(Screen.setHWNightmode, Screen, want)
+                require("ui/uimanager"):setDirty("all", "full")
+            end
+            -- KOReader restores Device.orig_hw_nightmode on exit (the HW flag it
+            -- believes the OS had before launch). After a crash the persisted
+            -- inversion is KOReader's own, but boot mistakes it for the native
+            -- state, so on exit it re-inverts the Kindle home screen and covers.
+            -- The Kindle native state is never inverted (the flag is KOReader's),
+            -- so pin orig back to false to hand the OS a clean screen on exit.
+            Device.orig_hw_nightmode = false
+        end
+    end
+
     initialized = true
     return true
 end
