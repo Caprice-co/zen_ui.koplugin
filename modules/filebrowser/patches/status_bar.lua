@@ -606,7 +606,7 @@ local function apply_status_bar()
         -- then double it for the full available span.
         local left_w = left_group:getSize().w
         local half_avail = math.floor(screen_w / 2) - math.max(left_w, right_w)
-        local center_max_w = math.max(0, half_avail * 2)
+        local center_max_w = math.max(1, half_avail * 2)
 
         -- Center: nav_title override > folder name when in subfolder > configured center items
         local center_content
@@ -826,7 +826,7 @@ local function apply_status_bar()
         local left_w  = left_group:getSize().w
         local right_w = h_padding + (right_content and right_content:getSize().w or 0)
         local half_avail = math.floor(screen_w / 2) - math.max(left_w, right_w)
-        local center_max_w = math.max(0, half_avail * 2)
+        local center_max_w = math.max(1, half_avail * 2)
 
         local center_content
         if title then
