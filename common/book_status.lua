@@ -82,19 +82,20 @@ function M.getComputedStatus(file_path, status, percent_finished, doc_settings)
     local lfs, DocSettings, doc, current_mtime = getFileContext(file_path, doc_settings)
     if not doc or current_mtime == nil then return effective_status end
 
-    local stored_mtime = tonumber(doc:readSetting(NEW_MTIME_KEY))
-    if stored_mtime ~= nil then
-        if current_mtime ~= stored_mtime then
-            doc:saveSetting(NEW_MTIME_KEY, current_mtime)
-            flushDocSettings(doc)
+    -- NEW_MTIME_KEY stores the file mtime that was last acknowledged (i.e. the
+    -- content the user has already seen). The book is "new" when the file has
+    -- changed since then. Pure read: acknowledgment is what writes the marker.
+    local acked_mtime = tonumber(doc:readSetting(NEW_MTIME_KEY))
+    if acked_mtime ~= nil then
+        if current_mtime > acked_mtime then
+            return "new"
         end
-        return "new"
+        return effective_status
     end
 
+    -- No acknowledgment yet: first-time detection compares against the sidecar.
     local sidecar_mtime = getSidecarMtime(DocSettings, file_path, lfs)
     if sidecar_mtime ~= nil and current_mtime > sidecar_mtime then
-        doc:saveSetting(NEW_MTIME_KEY, current_mtime)
-        flushDocSettings(doc)
         return "new"
     end
     return effective_status
@@ -102,13 +103,35 @@ end
 
 function M.acknowledgeNewVersion(doc_settings)
     if not doc_settings then return false end
-    local changed = doc_settings:readSetting(NEW_MTIME_KEY) ~= nil
-        or doc_settings:readSetting(LEGACY_NEW_MTIME_KEY) ~= nil
-    if changed then
-        doc_settings:delSetting(NEW_MTIME_KEY)
+
+    -- Record the current file mtime as the acknowledged version. Detection then
+    -- only re-flags "new" when the file changes again (see getComputedStatus).
+    local file_path = doc_settings.data and doc_settings.data.doc_path
+    local current_mtime
+    if file_path then
+        local ok_lfs, lfs = pcall(require, "libs/libkoreader-lfs")
+        if ok_lfs then
+            current_mtime = lfs.attributes(file_path, "modification")
+        end
+    end
+
+    local prev_acked = tonumber(doc_settings:readSetting(NEW_MTIME_KEY))
+    local had_legacy = doc_settings:readSetting(LEGACY_NEW_MTIME_KEY) ~= nil
+    if had_legacy then
         doc_settings:delSetting(LEGACY_NEW_MTIME_KEY)
     end
-    return changed
+
+    if current_mtime == nil then
+        -- Can't stat the file: fall back to clearing so we don't get stuck.
+        local changed = prev_acked ~= nil or had_legacy
+        if prev_acked ~= nil then
+            doc_settings:delSetting(NEW_MTIME_KEY)
+        end
+        return changed
+    end
+
+    doc_settings:saveSetting(NEW_MTIME_KEY, current_mtime)
+    return prev_acked ~= current_mtime or had_legacy
 end
 
 function M.migrateLegacyMarker(file_path, status, doc_settings)
@@ -116,25 +139,20 @@ function M.migrateLegacyMarker(file_path, status, doc_settings)
     local legacy_mtime = tonumber(doc_settings:readSetting(LEGACY_NEW_MTIME_KEY))
     if legacy_mtime == nil then return status, false end
 
-    local lfs = require("libs/libkoreader-lfs")
-    local current_mtime = lfs.attributes(file_path, "modification")
+    -- Legacy marker meant "flagged new/updated". Under the new scheme detection
+    -- re-derives newness from the sidecar mtime, so we only drop the legacy key
+    -- (writing NEW_MTIME_KEY now would record the version as *acknowledged*).
     local summary_changed = status == "abandoned"
     doc_settings:delSetting(LEGACY_NEW_MTIME_KEY)
 
     if summary_changed then
         local summary = doc_settings:readSetting("summary") or {}
         summary.status = nil
-        if current_mtime ~= nil then
-            doc_settings:saveSetting(NEW_MTIME_KEY, current_mtime)
-        end
         require("apps/filemanager/filemanagerutil").saveSummary(doc_settings, summary)
         require("ui/widget/booklist").setBookInfoCacheProperty(file_path, "status", nil)
         return nil, true
     end
 
-    if current_mtime ~= nil and current_mtime ~= legacy_mtime then
-        doc_settings:saveSetting(NEW_MTIME_KEY, current_mtime)
-    end
     flushDocSettings(doc_settings)
     return status, true
 end
