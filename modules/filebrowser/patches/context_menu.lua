@@ -458,6 +458,10 @@ local function apply_context_menu()
                 end
             end
 
+            -- True when the held item is the folder currently being viewed
+            -- (blank-hold), false when holding a sub-folder from its parent list.
+            -- Captured before the series-view reassignment below overwrites item.
+            local is_current_view = item._is_current_dir == true
             if item._is_current_dir
                     and self_fc.item_table
                     and self_fc.item_table.is_in_series_view
@@ -1726,7 +1730,7 @@ local function apply_context_menu()
                 })
             end
 
-            if item._is_current_dir or is_virtual_folder then
+            if is_virtual_folder or (not is_file and is_not_parent_folder) then
                 local function showViewSubmenu()
                     close_dialog()
                     local ok_fm, FM = pcall(require, "apps/filemanager/filemanager")
@@ -1754,10 +1758,13 @@ local function apply_context_menu()
                     local function apply_mode(mode)
                         if not is_primary_home and fdm_api then
                             fdm_api.set(real_folder, mode)
-                            if type(fdm_api.apply) == "function" then
+                            -- Only re-render the live view when the override is for
+                            -- the folder currently open. Holding a sub-folder from
+                            -- its parent stores the override; it applies on entry.
+                            if is_current_view and type(fdm_api.apply) == "function" then
                                 fdm_api.apply(real_folder)
+                                refresh()
                             end
-                            refresh()
                         elseif fm and type(fm.onSetDisplayMode) == "function" then
                             pcall(fm.onSetDisplayMode, fm, mode)
                         elseif ok_bim and bim then
