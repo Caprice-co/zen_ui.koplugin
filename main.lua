@@ -2,6 +2,7 @@
 -- require("gettext") in every sub-module receives the wrapped version.
 local i18n = require("common/i18n")
 i18n.install()
+require("common/status_bar_registry").install()
 
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local logger = require("logger")

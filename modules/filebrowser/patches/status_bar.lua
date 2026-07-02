@@ -24,6 +24,7 @@ local function apply_status_bar()
     local utils = require("common/utils")
     local paths = require("common/paths")
     local SharedState = require("common/shared_state")
+    local status_bar_registry = require("common/status_bar_registry")
     local Background = require("common/ui/background")
     local _ = require("gettext")
 
@@ -50,20 +51,8 @@ local function apply_status_bar()
         none            = "",
     }
 
-    -- Known item keys; determines what can be placed on either side
-    local known_item_keys = { "wifi", "disk", "ram", "frontlight", "battery", "time", "custom_text" }
-    local known_item_set = {}
-    for _i, k in ipairs(known_item_keys) do known_item_set[k] = true end
-
-    -- External items registered by other plugins live in a plain global table so
-    -- registration is decoupled from plugin load order. Shape:
-    --   _G.__ZEN_UI_STATUS_ITEMS[key] = { fetch = fn, label = str, side = str }
-    -- fetch() returns icon, label, color (same contract as built-in fetchers).
-    local function getStatusItemsRegistry()
-        return rawget(_G, "__ZEN_UI_STATUS_ITEMS") or {}
-    end
     local function getRegistryFetcher(key)
-        local entry = getStatusItemsRegistry()[key]
+        local entry = status_bar_registry.get(key)
         return type(entry) == "table" and entry.fetch or nil
     end
 
@@ -139,14 +128,13 @@ local function apply_status_bar()
             _serializeOrder(config.left_order),
             "center_order=", _serializeOrder(config.center_order),
             "right_order=",  _serializeOrder(config.right_order))
-        -- Validate: only known keys, no cross-side duplicates
+        -- Preserve dormant external keys: their plugins may register after Zen UI.
         local seen = {}
         local function clean_order(list, side_name)
             local out = {}
-            local registry = getStatusItemsRegistry()
             for _i, v in ipairs(type(list) == "table" and list or {}) do
-                if not known_item_set[v] and not registry[v] then
-                    logger.warn("ZenUI [status_bar] dropping unknown item on", side_name, ":", tostring(v))
+                if type(v) ~= "string" or v == "" then
+                    logger.warn("ZenUI [status_bar] dropping invalid item on", side_name, ":", tostring(v))
                 elseif seen[v] then
                     logger.warn("ZenUI [status_bar] dropping duplicate item across sides:", tostring(v), "on", side_name)
                 else
@@ -459,6 +447,13 @@ local function apply_status_bar()
         local bold      = bold_override ~= nil and bold_override or config.bold_text or false
         local first     = true
         local function f() return face or getBarFont() end
+        local function iconFace()
+            local text_face = f()
+            local size = text_face.orig_size or text_face.size or 14
+            return Font:getFace("nerdfonts/symbols.ttf", size)
+                or Font:getFace("SymbolsNerdFont-Regular.ttf", size)
+                or text_face
+        end
         for _i, key in ipairs(order) do
             local builtin = item_fetchers[key]
             local fn = builtin or getRegistryFetcher(key)
@@ -471,20 +466,34 @@ local function apply_status_bar()
                     local ok, a, b, c = pcall(fn)
                     if ok then icon, label, color = a, b, c end
                 end
-                if icon ~= nil then
+                local has_icon = icon ~= nil and icon ~= ""
+                local has_label = label ~= nil and label ~= ""
+                if has_icon or has_label then
                     if not first and sep ~= "" then
                         table.insert(group, TextWidget:new{ text = sep, face = f(), bold = bold })
                     end
-                    if use_color and color then
+                    if not builtin and has_icon then
+                        local widget_class = use_color and color and ColorTextWidget or TextWidget
+                        local icon_opts = {
+                            text = icon, face = iconFace(), bold = bold,
+                        }
+                        if use_color and color then icon_opts.fgcolor = color end
+                        table.insert(group, widget_class:new(icon_opts))
+                        if has_label then
+                            table.insert(group, TextWidget:new{ text = label, face = f(), bold = bold })
+                        end
+                    elseif use_color and color and has_icon then
                         table.insert(group, ColorTextWidget:new{
                             text = icon, face = f(), fgcolor = color, bold = bold,
                         })
-                        if label and label ~= "" then
+                        if has_label then
                             table.insert(group, TextWidget:new{ text = label, face = f(), bold = bold })
                         end
-                    else
-                        local text = label and (icon .. label) or icon
+                    elseif has_icon then
+                        local text = has_label and (icon .. label) or icon
                         table.insert(group, TextWidget:new{ text = text, face = f(), bold = bold })
+                    else
+                        table.insert(group, TextWidget:new{ text = label, face = f(), bold = bold })
                     end
                     first = false
                 end
@@ -935,53 +944,6 @@ local function apply_status_bar()
         }, register_status_bar_api)
         register_status_bar_api(zen_plugin)
     end
-
-    -- === External item registration API ===
-    -- Lets other plugins add items to the file-manager status bar next to the
-    -- built-ins (wifi, battery, time, ...). Decoupled from load order via a plain
-    -- global table; register any time, before or after Zen UI loads.
-    --
-    --   local ok = _G.__ZEN_UI_REGISTER_STATUS_ITEM("myplugin_foo", function()
-    --       return icon, label, color   -- same contract as built-in fetchers
-    --   end, { label = "Foo", side = "right" })
-    --
-    -- key   unique string; collisions overwrite. Namespace it (e.g. plugin prefix).
-    -- fetch function returning icon[, label][, color]; return nil icon to hide.
-    -- opts  { label = display name for settings UI, side = "left"|"center"|"right" }
-    -- Returns true on success, false on bad args.
-    if not rawget(_G, "__ZEN_UI_REGISTER_STATUS_ITEM") then
-        _G.__ZEN_UI_REGISTER_STATUS_ITEM = function(key, fetch, opts)
-            if type(key) ~= "string" or key == "" or type(fetch) ~= "function" then
-                return false
-            end
-            opts = type(opts) == "table" and opts or {}
-            local registry = rawget(_G, "__ZEN_UI_STATUS_ITEMS")
-            if type(registry) ~= "table" then
-                registry = {}
-                rawset(_G, "__ZEN_UI_STATUS_ITEMS", registry)
-            end
-            local side = opts.side
-            if side ~= "left" and side ~= "center" and side ~= "right" then
-                side = "right"
-            end
-            registry[key] = {
-                fetch = fetch,
-                label = type(opts.label) == "string" and opts.label or key,
-                side  = side,
-            }
-            -- Refresh the visible bar so the item shows up without waiting for the
-            -- next heartbeat. Safe no-op if no file manager is up yet.
-            if FileManager.instance and FileManager.instance._updateStatusBar then
-                pcall(function() FileManager.instance:_updateStatusBar() end)
-            end
-            return true
-        end
-    end
-    _G.__ZEN_UI_UNREGISTER_STATUS_ITEM = _G.__ZEN_UI_UNREGISTER_STATUS_ITEM
-        or function(key)
-            local registry = rawget(_G, "__ZEN_UI_STATUS_ITEMS")
-            if type(registry) == "table" then registry[key] = nil end
-        end
 
     -- === Replace title content and reposition buttons ===
 
