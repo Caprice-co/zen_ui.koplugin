@@ -658,6 +658,19 @@ function ZenUI:init()
 
     -- Trigger background update check on fresh startup too, not only on resume.
     zen_updater.schedule_wakeup_check()
+
+    -- Signal that Zen UI is loaded and its public globals (e.g. the status bar
+    -- registry _G.__ZEN_UI_REGISTER_STATUS_ITEM) are available. Plugins loaded
+    -- after Zen can just check for the global they need directly; plugins already
+    -- loaded when we finish get this broadcast so they know to (re)register. The
+    -- event name is part of the public integration contract.
+    do
+        local ok_um, UIManager = pcall(require, "ui/uimanager")
+        local ok_ev, Event = pcall(require, "ui/event")
+        if ok_um and ok_ev then
+            UIManager:broadcastEvent(Event:new("ZenUIReady"))
+        end
+    end
 end
 
 -- addToMainMenu is a no-op; tab injection is done via the FileManagerMenu patch.

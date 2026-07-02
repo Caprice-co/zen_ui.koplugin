@@ -1027,6 +1027,17 @@ function M.build(ctx)
             display_mode_item,
             items_per_page_item,
             {
+                text = _("Show all files from subfolders"),
+                checked_func = function()
+                    return G_reader_settings:isTrue("show_flat_view")
+                end,
+                callback = function()
+                    local v = not G_reader_settings:isTrue("show_flat_view")
+                    G_reader_settings:saveSetting("show_flat_view", v)
+                    settings_apply.prompt_restart()
+                end,
+            },
+            {
                 text = _("Show item underline"),
                 checked_func = function()
                     return config.features.browser_hide_underline ~= true

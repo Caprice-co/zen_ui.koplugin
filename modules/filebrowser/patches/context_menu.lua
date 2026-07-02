@@ -1367,6 +1367,9 @@ local function apply_context_menu()
                                     if home and type(home.invalidateBookCache) == "function" then
                                         home.invalidateBookCache(file)
                                     end
+                                    if home and type(home.rebuildActive) == "function" then
+                                        home.rebuildActive()
+                                    end
                                     if self_fc.filemanager_menu then
                                         self_fc.filemanager_menu.files_updated = true
                                     end

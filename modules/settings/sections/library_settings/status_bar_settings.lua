@@ -34,6 +34,20 @@ function M.build(ctx)
         { key = "custom_text", text = _("Custom text") },
     }
 
+    -- Append items registered by external plugins via
+    -- _G.__ZEN_UI_REGISTER_STATUS_ITEM so they are placeable from this UI.
+    local ext_registry = rawget(_G, "__ZEN_UI_STATUS_ITEMS")
+    if type(ext_registry) == "table" then
+        for key, entry in pairs(ext_registry) do
+            if type(entry) == "table" and type(entry.fetch) == "function" then
+                table.insert(status_bar_all_items, {
+                    key  = key,
+                    text = type(entry.label) == "string" and entry.label or key,
+                })
+            end
+        end
+    end
+
     -- Canonical positions within each slot: items are inserted at the slot
     -- position matching this order when the user enables them, rather than
     -- always appending to the end.
