@@ -81,7 +81,7 @@ local function apply_browser_display_mode_by_path()
 
     function M.set(path, mode)
         local key = normalize_path(path)
-        if not key or not VALID_MODES[mode] or paths.isHomeRoot(key) then return end
+        if not key or not VALID_MODES[mode] or paths.isPrimaryHomeRoot(key) then return end
         local m, cfg = read_map()
         m[key] = mode
         save_config(cfg)
@@ -134,7 +134,7 @@ local function apply_browser_display_mode_by_path()
             local cb = fm and fm.coverbrowser
             local ok_bim, BookInfoManager = pcall(require, "bookinfomanager")
             local current_mode = ok_bim and BookInfoManager:getSetting("filemanager_display_mode") or nil
-            local override = in_home and not paths.isHomeRoot(resolved) and M.get(resolved) or nil
+            local override = in_home and not paths.isPrimaryHomeRoot(resolved) and M.get(resolved) or nil
 
             if saved and in_home then
                 -- ── Entering home_dir: restore preferred mode BEFORE refreshPath ──

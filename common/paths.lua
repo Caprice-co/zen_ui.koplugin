@@ -46,6 +46,16 @@ function M.isHomeRoot(path)
     return false
 end
 
+-- Returns true only if path is exactly the primary home_dir (library root).
+-- Unlike isHomeRoot, additional home dirs are NOT matched, so they get
+-- per-folder sort/display like any other folder.
+function M.isPrimaryHomeRoot(path)
+    if not path then return false end
+    local norm = M.normPath(path:gsub("/$", ""))
+    local home = M.getHomeDir()
+    return home ~= nil and norm == home
+end
+
 -- Returns true if path is at or directly under home_dir,
 -- or under any additional home dirs configured in zen_ui_config.
 -- Both path and home_dir are normalized before the comparison.

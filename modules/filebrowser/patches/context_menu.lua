@@ -718,6 +718,9 @@ local function apply_context_menu()
             local is_file            = item.is_file
             local is_not_parent_folder = not item.is_go_up
             local is_home_dir = (not is_file) and paths.isHomeRoot(file)
+            -- Only the primary library root uses global sort/display; additional
+            -- home dirs behave like ordinary folders with per-folder overrides.
+            local is_primary_home = (not is_file) and paths.isPrimaryHomeRoot(file)
 
             local function close_dialog()
                 UIManager:close(self_fc.file_dialog)
@@ -1733,7 +1736,7 @@ local function apply_context_menu()
                     local ffiUtil_view = require("ffi/util")
                     local display_folder = (is_virtual_folder and item._zen_sort_key) or file
                     local real_folder = ffiUtil_view.realpath(display_folder) or display_folder
-                    local folder_override = (not is_home_dir) and fdm_api
+                    local folder_override = (not is_primary_home) and fdm_api
                         and fdm_api.get(real_folder) or nil
                     local cur_mode
                     if folder_override then
@@ -1749,7 +1752,7 @@ local function apply_context_menu()
                         if ok3 then cur_mode = m end
                     end
                     local function apply_mode(mode)
-                        if not is_home_dir and fdm_api then
+                        if not is_primary_home and fdm_api then
                             fdm_api.set(real_folder, mode)
                             if type(fdm_api.apply) == "function" then
                                 fdm_api.apply(real_folder)
@@ -1804,7 +1807,7 @@ local function apply_context_menu()
                     { key = "access", text = "\u{F02DA}  " .. _("Recently read") },
                 }
 
-                if is_home_dir then
+                if is_primary_home then
                     local g_sort = rawget(_G, "G_reader_settings")
                     if g_sort then
                         table.insert(buttons, {
