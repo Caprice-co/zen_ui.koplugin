@@ -384,6 +384,17 @@ local function apply_context_menu()
                     end
                     widget.dim = item.dim
 
+                    -- List layout bakes the dim/selection state into its widget
+                    -- subtree at update() time (listmenu.lua: self.file_deleted =
+                    -- self.entry.dim), unlike mosaic which reads self.dim live in
+                    -- paintTo. Without re-running update() the list repaints its
+                    -- stale tree, so the highlight only appears after a page turn
+                    -- rebuilds all items. Re-baking one item is cheaper than the
+                    -- stock full updateItems(1, true).
+                    if type(widget.update) == "function" then
+                        pcall(function() widget:update() end)
+                    end
+
                     local d = (widget[1] and widget[1].dimen) or widget.dimen
                     if d then
                         local dirty_owner = self_fc.show_parent or self_fc
