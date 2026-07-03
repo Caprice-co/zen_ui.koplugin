@@ -357,8 +357,8 @@ function M.getGroupedByTags()
     return groups
 end
 
--- Returns the total number of fully-indexed books in the bookinfo cache
--- that live under home_dir. Uses a SQL COUNT so no lfs calls are made.
+-- Returns the total number of fully-indexed books in the bookinfo cache,
+-- across all directories. Uses a SQL COUNT so no lfs calls are made.
 function M.getTotalBookCount()
     if not bimOk then
         logger.warn("zen-ui automatic_series_grouping: BookInfoManager not available")
@@ -367,37 +367,9 @@ function M.getTotalBookCount()
     BookInfoManager:openDbConnection()
     local conn = BookInfoManager.db_conn
 
-    local home_dir = paths.getHomeDir()
-
     local count = 0
     local ok2, err = pcall(function()
-        local sql, row
-        if home_dir then
-            -- directory values include a trailing slash, e.g. "/storage/books/"
-            -- LIKE prefix match covers all subdirectories.
-            -- Also match the /sdcard <-> /storage/emulated/0 symlink variant so the
-            -- count is correct regardless of which prefix the SQLite DB used.
-            local alt
-            if home_dir:match("^/storage/emulated/0") then
-                alt = home_dir:gsub("^/storage/emulated/0", "/sdcard")
-            elseif home_dir:match("^/sdcard") then
-                alt = home_dir:gsub("^/sdcard", "/storage/emulated/0")
-            end
-            if alt and alt ~= home_dir then
-                sql = string.format(
-                    "SELECT COUNT(*) FROM bookinfo WHERE in_progress = 0"
-                    .. " AND (directory LIKE %q OR directory LIKE %q);",
-                    home_dir .. "%", alt .. "%")
-            else
-                sql = string.format(
-                    "SELECT COUNT(*) FROM bookinfo WHERE in_progress = 0"
-                    .. " AND directory LIKE %q;",
-                    home_dir .. "%")
-            end
-        else
-            sql = "SELECT COUNT(*) FROM bookinfo WHERE in_progress = 0;"
-        end
-        row = conn:rowexec(sql)
+        local row = conn:rowexec("SELECT COUNT(*) FROM bookinfo WHERE in_progress = 0;")
         count = tonumber(row) or 0
     end)
     if not ok2 then
