@@ -2,6 +2,7 @@ local M = {}
 local initialized = false
 
 local PATCH_MODULES = {
+    library_navigation = "modules/reader/patches/library_navigation",
     opening_banner = "modules/reader/patches/opening_banner",
     book_status = "modules/reader/patches/book_status",
     reader_top_status_bar = "modules/reader/patches/reader_top_status_bar",
@@ -50,6 +51,12 @@ end
 function M.init(logger, plugin)
     if initialized then
         return true
+    end
+
+    -- Route KOReader's File browser gesture through the same transition as Zen UI.
+    local library_navigation_fn = load_patch("library_navigation")
+    if library_navigation_fn then
+        run_feature(logger, plugin, "library_navigation", library_navigation_fn)
     end
 
     -- Always apply: page browser (self-disables when feature is off).

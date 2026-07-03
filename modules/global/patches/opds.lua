@@ -35,6 +35,7 @@ local function apply_opds()
     local logger          = require("logger")
     local Device          = require("device")
     local OPDSParser      = require("opdsparser")
+    local CoverUtils      = require("common/cover_utils")
     local Screen          = Device.screen
 
     -- Cover cache: [url] → { bb } | { failed = true }  (session-scoped)
@@ -253,6 +254,29 @@ local function apply_opds()
         return fs
     end
 
+    local COVER_BORDER = Size.border.thin
+
+    local function build_cover_widget(entry, cover_w, cover_h)
+        if entry._zen_opds_folder then
+            local inner_w = math.max(1, cover_w - 2 * COVER_BORDER)
+            local inner_h = math.max(1, cover_h - 2 * COVER_BORDER)
+            return CoverUtils.drawNoImage(
+                entry.title or entry.text or "", inner_w, inner_h, COVER_BORDER)
+        elseif entry.cover_bb then
+            return ImageWidget:new{
+                image = entry.cover_bb,
+                image_disposable = false,
+                width = cover_w,
+                height = cover_h,
+            }
+        end
+
+        return LineWidget:new{
+            dimen = Geom:new{ w = cover_w, h = cover_h },
+            background = Blitbuffer.COLOR_LIGHT_GRAY,
+        }
+    end
+
     local OPDSItem = InputContainer:extend{
         entry = nil, cover_w = nil, cover_h = nil,
         item_w = nil, item_h = nil,
@@ -268,21 +292,7 @@ local function apply_opds()
         local entry  = self.entry
         local text_w = self.item_w - self.cover_w - PAD * 3
         local text_h = self.item_h - PAD_V * 2
-        local cover_inner
-        if entry.cover_bb then
-            logger.dbg("OPDSItem: rendering cover image for", entry.title or "?")
-            cover_inner = ImageWidget:new{
-                image = entry.cover_bb, width = self.cover_w, height = self.cover_h,
-                image_disposable = false,
-            }
-        else
-            -- LineWidget has a proper getSize(); bare FrameContainer without a child crashes
-            -- when CenterContainer:paintTo calls getSize() on it.
-            cover_inner = LineWidget:new{
-                dimen = Geom:new{ w = self.cover_w, h = self.cover_h },
-                background = Blitbuffer.COLOR_LIGHT_GRAY,
-            }
-        end
+        local cover_inner = build_cover_widget(entry, self.cover_w, self.cover_h)
         local text_group = VGroup:new{ align = "left" }
         local title = entry.title or entry.text or ""
         local fs_title = opds_fontSize(18, 21, self.item_h)
@@ -393,18 +403,7 @@ local function apply_opds()
         }
         local entry = self.entry
         local cover_area_h = self.cell_h - self.strip_h
-        local cover_inner
-        if entry.cover_bb then
-            cover_inner = ImageWidget:new{
-                image = entry.cover_bb, width = self.cover_w, height = self.cover_h,
-                image_disposable = false,
-            }
-        else
-            cover_inner = LineWidget:new{
-                dimen = Geom:new{ w = self.cover_w, h = self.cover_h },
-                background = Blitbuffer.COLOR_LIGHT_GRAY,
-            }
-        end
+        local cover_inner = build_cover_widget(entry, self.cover_w, self.cover_h)
         local inner
         if self.strip_h > 0 then
             local TITLE_FONT  = 16
@@ -636,8 +635,11 @@ local function apply_opds()
             if num_rows > num_rows_max then num_rows = num_rows_max end
             local cell_h = math.floor((avail_h - (1 + num_rows) * item_margin) / num_rows)
             local cover_area_h = cell_h - _strip_h
-            local cover_h = math.max(1, cover_area_h - PAD_V * 2)
-            local cover_w = math.floor(cover_h * _cover_ratio)
+            local inner_w, inner_h = CoverUtils.calcDims(
+                math.max(1, cell_w - 2 * COVER_BORDER),
+                math.max(1, cover_area_h - 2 * COVER_BORDER))
+            local cover_w = inner_w + 2 * COVER_BORDER
+            local cover_h = inner_h + 2 * COVER_BORDER
             self.item_height = cell_h
             self.perpage     = num_cols * num_rows
             self.page_num    = math.max(1, math.ceil(#self.item_table / self.perpage))
@@ -669,7 +671,8 @@ local function apply_opds()
                             cell_w = cell_w, cell_h = cell_h,
                             show_parent = self.show_parent, menu = self,
                             strip_h = _strip_h,
-                            show_title = _strip_show_title, show_author = _strip_show_author,
+                            show_title = _strip_show_title,
+                            show_author = _strip_show_author and not entry._zen_opds_folder,
                         }
                         table.insert(row_group, w)
                         table.insert(row_widgets, w)
@@ -708,8 +711,11 @@ local function apply_opds()
                 math.max(0, #self.item_table - (self.page - 1) * self.perpage))
             local separators_h = math.max(0, visible_items - 1)
             self.item_height = math.max(1, math.floor((avail_h - separators_h) / list_perpage))
-            cover_h = math.max(1, self.item_height - PAD_V * 2)
-            local cover_w = math.floor(cover_h * _cover_ratio)
+            local inner_w, inner_h = CoverUtils.calcDims(
+                math.max(1, self.item_height - PAD_V * 2 - 2 * COVER_BORDER),
+                math.max(1, self.item_height - PAD_V * 2 - 2 * COVER_BORDER))
+            local cover_w = inner_w + 2 * COVER_BORDER
+            cover_h = inner_h + 2 * COVER_BORDER
             self.item_width  = self.inner_dimen.w
             self.item_dimen  = Geom:new{ x = 0, y = 0, w = self.item_width, h = self.item_height }
             logger.dbg("OPDS list: perpage=", self.perpage,
@@ -909,6 +915,8 @@ local function apply_opds()
                     with_cover = with_cover + 1
                     logger.dbg("OPDS cover_url set:", item.title or "?", "->", thumb)
                 end
+            elseif item.url then
+                item._zen_opds_folder = true
             end
         end
         logger.dbg("OPDS genItemTableFromCatalog: total=", #item_table, "with_cover=", with_cover)

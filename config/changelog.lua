@@ -150,5 +150,10 @@ return {
         "Fixed a bug with per folder display mode not showing on real folders",
         "Fixed a bug multi page automatic series folders",
     },
+    ["2.2.2"] = {
+        "Better support for OPDS folders",
+        "Status bar API for 3rd party plugins",
+        "Bug fixes",
+    },
 
 }
