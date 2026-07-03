@@ -155,5 +155,8 @@ return {
         "Status bar API for 3rd party plugins",
         "Bug fixes",
     },
+    ["2.4.0"] = {
+        "Continuation of 2.3 betas but I borked the updates by releasing 2.2.2 while doing 2.3 betas"
+    },
 
 }
