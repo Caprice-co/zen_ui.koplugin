@@ -212,6 +212,22 @@ local function set_bottom_status_bar(plugin, enabled)
     return true
 end
 
+-- Combines KOReader's built-in pull-then-push progress sync (previously the
+-- "Sync" quick settings button) into a single bindable action.
+local function sync_reading_progress()
+    local NetworkMgr = require("ui/network/manager")
+    local UIManager = require("ui/uimanager")
+    local Event = require("ui/event")
+    NetworkMgr:runWhenOnline(function()
+        UIManager:broadcastEvent(Event:new("KOSyncPullProgress"))
+        -- Push after a short delay to let the pull complete first.
+        UIManager:scheduleIn(1, function()
+            UIManager:broadcastEvent(Event:new("KOSyncPushProgress"))
+        end)
+    end)
+    return true
+end
+
 local _folder_picker_patched = false
 
 -- Render a per-action folder picker for zen_ui_show_folder. The default Dispatcher
@@ -353,6 +369,12 @@ function M.onDispatcherRegisterActions()
         toggle = {},
         zen_folder_picker = true,
     })
+    Dispatcher:registerAction("zen_ui_kosync_sync", {
+        category = "none",
+        event = "ZenUIKOSyncSync",
+        title = _("Zen UI - Sync progress (pull + push)"),
+        general = true,
+    })
     patch_folder_picker_menu(Dispatcher)
 end
 
@@ -423,6 +445,10 @@ function M.onShowZenUIFolder(plugin, folder)
     return show_zen_folder(plugin, folder)
 end
 
+function M.onZenUIKOSyncSync()
+    return sync_reading_progress()
+end
+
 function M.install(target)
     target.onDispatcherRegisterActions = M.onDispatcherRegisterActions
     target.onToggleZenMode = M.onToggleZenMode
@@ -436,6 +462,7 @@ function M.install(target)
     target.onShowZenUISeries = M.onShowZenUISeries
     target.onShowZenUITags = M.onShowZenUITags
     target.onShowZenUIFolder = M.onShowZenUIFolder
+    target.onZenUIKOSyncSync = M.onZenUIKOSyncSync
 end
 
 return M
