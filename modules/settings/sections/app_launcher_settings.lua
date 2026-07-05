@@ -411,6 +411,18 @@ function M.build(ctx)
                 callback = add_folder,
             }, icons.new_folder)
         end
+        items[#items + 1] = IconItem.decorate({
+            text = _("Row break"),
+            keep_menu_open = true,
+            callback = function(touch_menu)
+                local entry = {
+                    id = Model.next_id(cfg),
+                    type = "break",
+                }
+                insert_entry(entry, folder)
+                if touch_menu then touch_menu:backToUpperMenu() end
+            end,
+        }, icons.move)
         return items
     end
 
@@ -540,7 +552,7 @@ function M.build(ctx)
             for _i, item in ipairs(add_sub) do
                 items[#items + 1] = item
             end
-        else
+        elseif entry.type ~= "break" then
             items[#items + 1] = IconItem.decorate({
                 text_func = function()
                     return T(_("Plugin: %1"), entry.label or _("(none)"))
@@ -575,7 +587,9 @@ function M.build(ctx)
                 end
                 UIManager:show(ConfirmBox:new{
                     text = entry.type == "folder" and entry.children and #entry.children > 0
-                        and _("Delete this folder and its buttons?") or _("Delete this button?"),
+                            and _("Delete this folder and its buttons?")
+                        or entry.type == "break" and _("Delete this row break?")
+                        or _("Delete this button?"),
                     ok_text = _("Delete"),
                     ok_callback = remove,
                 })

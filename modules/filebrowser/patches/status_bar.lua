@@ -458,13 +458,13 @@ local function apply_status_bar()
             local builtin = item_fetchers[key]
             local fn = builtin or getRegistryFetcher(key)
             if fn then
-                local icon, label, color
+                local icon, label, color, icon_image
                 if builtin then
-                    icon, label, color = fn()
+                    icon, label, color, icon_image = fn()
                 else
                     -- External fetchers are untrusted; a throw must not break the bar.
-                    local ok, a, b, c = pcall(fn)
-                    if ok then icon, label, color = a, b, c end
+                    local ok, a, b, c, d = pcall(fn)
+                    if ok then icon, label, color, icon_image = a, b, c, d end
                 end
                 local has_icon = icon ~= nil and icon ~= ""
                 local has_label = label ~= nil and label ~= ""
@@ -478,12 +478,25 @@ local function apply_status_bar()
                             text = icon, face = iconFace(), bold = bold,
                         }
                         if use_color and color then icon_opts.fgcolor = color end
-                        table.insert(group, widget_class:new(icon_opts))
+
+                        local ImageWidget = require("ui/widget/imagewidget")
+                        table.insert(group, icon_image and ImageWidget:new {
+                            file = icon,
+                            width = Screen:scaleBySize(f().size * 1.5),
+                            height = Screen:scaleBySize(f().size * 1.5),
+                            alpha = true, is_icon = true
+                        } or widget_class:new(icon_opts))
                         if has_label then
                             table.insert(group, TextWidget:new{ text = label, face = f(), bold = bold })
                         end
                     elseif use_color and color and has_icon then
-                        table.insert(group, ColorTextWidget:new{
+                        local ImageWidget = require("ui/widget/imagewidget")
+                        table.insert(group, icon_image and ImageWidget:new {
+                            file = icon,
+                            width = Screen:scaleBySize(f().size * 1.5),
+                            height = Screen:scaleBySize(f().size * 1.5),
+                            alpha = true, is_icon = true
+                        } or ColorTextWidget:new {
                             text = icon, face = f(), fgcolor = color, bold = bold,
                         })
                         if has_label then

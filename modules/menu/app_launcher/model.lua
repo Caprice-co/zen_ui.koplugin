@@ -13,6 +13,9 @@ local function valid_entry(entry, allow_folder)
     if type(entry) ~= "table" or type(entry.id) ~= "string" then
         return false
     end
+    if entry.type == "break" then
+        return true
+    end
     if type(entry.label) ~= "string" or entry.label == "" then
         return false
     end
@@ -135,6 +138,7 @@ end
 
 function M.display_label(entry)
     if not entry then return _("App") end
+    if entry.type == "break" then return "\u{2014} " .. _("Row break") .. " \u{2014}" end
     return entry.label or _("App")
 end
 
