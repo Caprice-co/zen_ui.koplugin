@@ -1971,6 +1971,9 @@ msgstr "Unterstreichung über dem Icon"
 msgid "Uniform covers"
 msgstr "Einheitliche Cover"
 
+msgid "Unavailable"
+msgstr "Nicht verfügbar"
+
 msgid "Unknown"
 msgstr "Unbekannt"
 

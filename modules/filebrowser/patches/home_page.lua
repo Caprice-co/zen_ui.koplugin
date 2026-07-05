@@ -268,22 +268,6 @@ local FEATURED_TEXT_STYLE_DEFAULTS = {
     description = { font_face = "default", font_size = 16, bold = false },
 }
 
-local function copy_default_row_order()
-    local out = {}
-    for _i, id in ipairs(DEFAULT_ROW_ORDER) do
-        out[#out + 1] = id
-    end
-    return out
-end
-
-local function copy_default_row_enabled()
-    local out = {}
-    for key, value in pairs(DEFAULT_ROW_ENABLED) do
-        out[key] = value
-    end
-    return out
-end
-
 local MODULE_TITLES = {
     datetime = "Today",
     featured_custom = "Featured Book",
@@ -444,45 +428,7 @@ local function ensure_home_cfg()
     end
     HomePresets.ensurePresetState(dcfg)
 
-    if type(dcfg.rows) ~= "table" then dcfg.rows = {} end
-    local rows = dcfg.rows
-
-    if type(rows.order) ~= "table" then rows.order = {} end
-    local normalized_order = {}
-    local seen_order = {}
-    for _i, id in ipairs(rows.order) do
-        if Registry.get(id) and not seen_order[id] then
-            seen_order[id] = true
-            table.insert(normalized_order, id)
-        end
-    end
-    if #normalized_order == 0 then
-        rows.order = copy_default_row_order()
-    else
-        rows.order = normalized_order
-    end
-
-    if type(rows.enabled) ~= "table" then rows.enabled = {} end
-    local normalized_enabled = {}
-    local had_enabled = false
-    for key, val in pairs(rows.enabled) do
-        if Registry.get(key) and val == true then
-            normalized_enabled[key] = true
-            had_enabled = true
-        elseif Registry.get(key) and normalized_enabled[key] == nil then
-            normalized_enabled[key] = false
-        end
-    end
-    if not had_enabled then
-        normalized_enabled = copy_default_row_enabled()
-    end
-    for _i, comp in ipairs(Registry.list()) do
-        if normalized_enabled[comp.id] == nil then
-            normalized_enabled[comp.id] = false
-        end
-    end
-    rows.enabled = normalized_enabled
-    rows.max_rows = 5
+    dcfg.rows = Registry.normalizeRows(dcfg.rows, DEFAULT_ROW_ORDER, DEFAULT_ROW_ENABLED)
 
     if dcfg.show_status_bar == nil then dcfg.show_status_bar = true end
 
@@ -539,13 +485,15 @@ local function resolve_rows(dcfg)
 
     local seen = {}
     local out = {}
+    local selected_count = 0
 
     local function try_push(id)
         if seen[id] then return end
         if enabled[id] ~= true then return end
+        seen[id] = true
+        selected_count = selected_count + 1
         local comp = Registry.get(id)
         if not comp then return end
-        seen[id] = true
         -- for strip widgets with two_rows enabled, double the size allocation
         local mcfg = type(dcfg.modules) == "table" and dcfg.modules[id] or nil
         if mcfg and mcfg.two_rows == true and comp.size then
@@ -564,20 +512,21 @@ local function resolve_rows(dcfg)
 
     for _i, id in ipairs(order) do
         try_push(id)
-        if #out >= max_rows then break end
+        if selected_count >= max_rows then break end
     end
 
-    if #out < max_rows then
+    if selected_count < max_rows then
         for _i, comp in ipairs(Registry.list()) do
             try_push(comp.id)
-            if #out >= max_rows then break end
+            if selected_count >= max_rows then break end
         end
     end
 
-    if #out == 0 then
+    if #out == 0 and selected_count == 0 then
         for _i, id in ipairs(DEFAULT_ROW_ORDER) do
             local comp = Registry.get(id)
             if comp then table.insert(out, comp) end
+            if #out >= max_rows then break end
         end
     end
 
@@ -674,10 +623,10 @@ local function build_data_provider(cfg, dcfg)
         local function try_mark(id)
             if seen[id] then return false end
             if enabled[id] ~= true then return false end
-            local comp = Registry.get(id)
-            if not comp then return false end
             seen[id] = true
             shown = shown + 1
+            local comp = Registry.get(id)
+            if not comp then return false end
             return id == widget_id
         end
 
@@ -2323,6 +2272,8 @@ function M.closeAll()
         end
     end
 end
+
+Registry.setRefreshCallback(M.rebuildActive)
 
 local function register_home_api(zen_plugin)
     if not zen_plugin or type(zen_plugin.config) ~= "table" then return end

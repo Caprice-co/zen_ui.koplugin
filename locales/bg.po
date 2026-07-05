@@ -1980,6 +1980,9 @@ msgstr "Подчертаване над иконата"
 msgid "Uniform covers"
 msgstr "Уеднаквяване на кориците"
 
+msgid "Unavailable"
+msgstr "Недостъпно"
+
 msgid "Unknown"
 msgstr "Неизвестно"
 

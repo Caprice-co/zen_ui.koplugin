@@ -104,6 +104,35 @@ Browse your favorite OPDS sources with the same clean, consistent interface you'
 
 <img src="./images/quickstart/onboarding/zen_ui_settings.png" width="500" alt="Zen UI Settings">
 
+## Plugin integration
+
+External plugins can add widgets to the Home page:
+
+```lua
+local register = rawget(_G, "__ZEN_UI_REGISTER_HOME_ITEM")
+if register then
+    register("my_plugin.summary", function(ctx)
+        -- Return a KOReader widget sized to ctx.width and ctx.height.
+    end, {
+        label = "My summary",
+        size = {
+            preferred_pct = 0.20,
+            min_pct = 0.12,
+            max_pct = 0.30,
+        },
+    })
+end
+```
+
+The builder receives `width`, `height`, `is_first_row`, and an item-specific
+`module_cfg` table. New items are disabled by default and can be enabled and
+positioned under **Home > Widgets**. Plugins loaded before Zen UI should register
+when they receive `ZenUIReady`; unregister with
+`_G.__ZEN_UI_UNREGISTER_HOME_ITEM(id)`.
+
+Registration returns `false` for invalid arguments or a built-in ID collision.
+Registering an existing external ID replaces its builder and options.
+
 ## Prerequistes
 
 - KOReader must be installed first in order to use Zen UI. [Install KOReader](https://github.com/koreader/koreader#installation)

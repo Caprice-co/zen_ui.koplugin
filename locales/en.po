@@ -1977,6 +1977,9 @@ msgstr "Underline above icon"
 msgid "Uniform covers"
 msgstr "Uniform covers"
 
+msgid "Unavailable"
+msgstr "Unavailable"
+
 msgid "Unknown"
 msgstr "Unknown"
 

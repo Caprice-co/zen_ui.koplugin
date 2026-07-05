@@ -1977,6 +1977,9 @@ msgstr "圖示上方底線"
 msgid "Uniform covers"
 msgstr "統一封面"
 
+msgid "Unavailable"
+msgstr "不可用"
+
 msgid "Unknown"
 msgstr "未知"
 

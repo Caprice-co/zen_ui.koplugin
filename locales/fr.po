@@ -1977,6 +1977,9 @@ msgstr "Soulignement au-dessus de l'icône"
 msgid "Uniform covers"
 msgstr "Couvertures uniformes"
 
+msgid "Unavailable"
+msgstr "Indisponible"
+
 msgid "Unknown"
 msgstr "Inconnu"
 

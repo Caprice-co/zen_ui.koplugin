@@ -22,6 +22,7 @@ end
 local ConfigManager = require("config/manager")
 local registry = require("modules/registry")
 local zen_settings = require("modules/settings/zen_settings")
+require("modules/filebrowser/patches/home/components/registry").install()
 local zen_updater   = require("modules/settings/zen_updater")
 local paths         = require("common/paths")
 local library_navigation = require("common/library_navigation")
@@ -660,11 +661,9 @@ function ZenUI:init()
     -- Trigger background update check on fresh startup too, not only on resume.
     zen_updater.schedule_wakeup_check()
 
-    -- Signal that Zen UI is loaded and its public globals (e.g. the status bar
-    -- registry _G.__ZEN_UI_REGISTER_STATUS_ITEM) are available. Plugins loaded
-    -- after Zen can just check for the global they need directly; plugins already
-    -- loaded when we finish get this broadcast so they know to (re)register. The
-    -- event name is part of the public integration contract.
+    -- Signal that Zen UI is loaded and its public status-bar and home-item
+    -- registries are available. Plugins loaded after Zen can check for the
+    -- globals directly; plugins already loaded can (re)register on this event.
     do
         local ok_um, UIManager = pcall(require, "ui/uimanager")
         local ok_ev, Event = pcall(require, "ui/event")
