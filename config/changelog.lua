@@ -161,6 +161,9 @@ return {
         "Add unified push/pull sync button to Actions",
         "Add home api for 3rd party plugins",
         "Update status bar API to allow images",
+        "Update Zen Updater to support Android ARM",
+        "Update Zen Bug Reporter to get Android crash logs",
+        "Always open Rakuyomi after exiting Reader from Rakuyomi owned manga",
         "Bug fixes"
     },
 
