@@ -156,7 +156,11 @@ return {
         "Bug fixes",
     },
     ["2.4.0"] = {
-        "Continuation of 2.3 betas but I borked the updates by releasing 2.2.2 while doing 2.3 betas"
+        "Continuation of 2.3 betas but I borked the updates by releasing 2.2.2 while doing 2.3 betas",
+        "Add row break in Launcher",
+        "Add unified push/pull sync button to Actions",
+        "Add home api for 3rd party plugins",
+        "Update status bar API to allow images",
     },
 
 }
