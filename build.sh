@@ -46,6 +46,7 @@ rsync -a \
   --exclude '.github/' \
   --exclude '.vscode/' \
   --exclude 'dist/' \
+  --exclude 'docs/' \
   --exclude '.DS_Store' \
   --exclude '.gitignore' \
   --exclude '*.zip' \
