@@ -23,3 +23,6 @@ Make sure you set the home folder to the location where your books are. I recomm
 ## Calibre loads all my books into folders of the authors, how can I fix that?
 
 Enable the setting **Library > Layout > Show all files from subfolders**.
+
+## How do I navigate the entire filesystem?
+If you want to navigate your filesystem (inside or out of Zen mode) you should disable home folder locking. Settings > Library > Home folder > Lock home folder. This will allow you to freely navigate the filesystem on your device.

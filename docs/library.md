@@ -73,7 +73,7 @@ Library settings control the KOReader library. Customize the top status bar, lay
 | Background > Enable | Shows the selected background image behind Library surfaces. |
 | Background > Image | Opens a file chooser for a JPG or JPEG background image. Hold this row to clear the selected image. |
 | Home folder > Set home folder | Opens a folder chooser for the primary library root. |
-| Home folder > Lock home folder | Locks navigation to the configured home folder. |
+| Home folder > Lock home folder | Prevents navigation outside of the home folder. |
 | Home folder > Additional home folders | Adds or removes extra library roots. |
 | Library > Allow delete | Enables or disables delete actions in the library context menu. |
 
@@ -96,6 +96,12 @@ Use **Background > Enable** and **Background > Image** to add a custom JPG/JPEG 
 Tap and hold any book, folder, or the current folder in the Library/Navbar. This opens the context menu. It collects details, file management, read status, sorting, filtering, and display actions for the selected item. Available actions depend on what you held — a book, a folder, or empty space in the current folder.
 
 ![Context menu](/images/zen_ui/context_menu.png)
+
+# Display mode & sorting
+Tap + Hold on the Navbar (or any empty space) to open the context menu for the folder you are viewing (including your libraries Home folder). From here you can change the folder's display mode, sorting, and status filter on the fly. Each folder remembers its own display and sorting preferences independently, so you can browse one folder as a mosaic sorted by title and another as a detailed list sorted by recently read, and each keeps its settings across sessions.
+
+# Filesystem
+If you want to navigate your filesystem (inside or out of Zen mode) you should disable the locking of the home folder. Settings > Library > Home folder > Lock home folder. This will allow you to freely navigate the filesystem on your device.
 
 ### Book actions
 
@@ -128,7 +134,7 @@ Tap and hold any book, folder, or the current folder in the Library/Navbar. This
 
 ### Current folder actions
 
-Hold on empty space (or the current-directory row) to act on the folder you are viewing.
+Hold on empty space to bring up the Context Menu for the folder you are viewing.
 
 | Action | Description |
 | --- | --- |
