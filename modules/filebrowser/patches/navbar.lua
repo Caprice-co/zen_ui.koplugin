@@ -31,6 +31,12 @@ local function apply_navbar()
         return rawget(_G, "__ZEN_UI_RAKUYOMI") or {}
     end
 
+    local function resolveRakuyomiTarget(file, reason)
+        local Rakuyomi = getRakuyomi()
+        if type(Rakuyomi.resolveTarget) ~= "function" then return nil end
+        return Rakuyomi.resolveTarget(file, reason)
+    end
+
     local zen_plugin = rawget(_G, "__ZEN_UI_PLUGIN")
     if not zen_plugin or type(zen_plugin.config) ~= "table" then
         return
@@ -2488,6 +2494,10 @@ local function apply_navbar()
         withBgTabRefreshSuppressed(function()
             local Rakuyomi = getRakuyomi()
             local target = state.rakuyomi_return_target
+            if not target and state.tab == "manga" then
+                target = resolveRakuyomiTarget(focused_file, "showFiles")
+                state.rakuyomi_return_target = target
+            end
             local has_opener = type(Rakuyomi.openChapterList) == "function"
             local opened_chapters = target and has_opener
                 and Rakuyomi.openChapterList(target)
@@ -2498,7 +2508,8 @@ local function apply_navbar()
                 "opened_chapters=", tostring(opened_chapters),
                 "fallback_tab=", tostring(state.tab),
                 "manga_action=", tostring(config.manga_action),
-                "manga_folder=", tostring(config.manga_folder))
+                "manga_destination=", tostring(config.manga_action == "folder"
+                    and config.manga_folder or config.manga_action))
             if not opened_chapters then
                 tab_callbacks[state.tab]()
             end

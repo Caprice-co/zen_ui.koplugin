@@ -56,7 +56,7 @@ local function path_is_inside(path, directory)
     path = normalize_path(path)
     directory = normalize_path(directory)
     return path and directory
-        and path:sub(1, #directory + 1) == directory .. "/"
+        and (path == directory or path:sub(1, #directory + 1) == directory .. "/")
 end
 
 local function get_data_dir()
@@ -72,17 +72,14 @@ local function absolute_data_path(path)
     return get_data_dir() .. "/" .. path
 end
 
-function M.isChapterFile(path)
-    if type(path) ~= "string" then
-        logger.dbg("zen-ui rakuyomi-return: chapter detection rejected non-string path")
-        return false
-    end
-    local lower_path = path:lower()
-    if lower_path:sub(-4) ~= ".cbz" and lower_path:sub(-5) ~= ".epub" then
-        logger.dbg("zen-ui rakuyomi-return: chapter detection rejected extension:", path)
-        return false
-    end
+local storage_path_loaded = false
+local storage_path_cache
 
+local function get_storage_path()
+    if storage_path_loaded then
+        return storage_path_cache
+    end
+    storage_path_loaded = true
     local home = get_data_dir() .. "/rakuyomi"
     local storage = home .. "/downloads"
     local content = require("util").readFromFile(home .. "/settings.json", "rb")
@@ -98,29 +95,196 @@ function M.isChapterFile(path)
             storage = absolute_data_path(settings.storage_path)
         end
     end
+    storage_path_cache = normalize_path(storage)
+    logger.dbg("zen-ui rakuyomi-return: cached storage path:", tostring(storage_path_cache))
+    return storage_path_cache
+end
 
-    local parent = normalize_path(storage):match("^(.*)/[^/]+$")
-    local tmpfs = parent ~= nil
-        and (parent == "" and "/" or parent .. "/") .. "tmpfs" or nil
+function M.isChapterFile(path)
+    if type(path) ~= "string" then
+        logger.dbg("zen-ui rakuyomi-return: chapter detection rejected non-string path")
+        return false
+    end
+
+    local storage = get_storage_path()
     local in_storage = path_is_inside(path, storage) == true
-    local in_tmpfs = path_is_inside(path, tmpfs) == true
     logger.dbg(
         "zen-ui rakuyomi-return: chapter detection:",
         "path=", path,
-        "storage=", storage,
-        "tmpfs=", tostring(tmpfs),
-        "in_storage=", tostring(in_storage),
-        "in_tmpfs=", tostring(in_tmpfs))
-    return in_storage or in_tmpfs
+        "storage=", tostring(storage),
+        "in_storage=", tostring(in_storage))
+    return in_storage
 end
 
-local function chapter_filename(source_id, manga_id, chapter_id)
-    local sha = require("ffi/sha2")
-    local digest = sha.hex_to_bin(sha.sha256(source_id .. manga_id .. chapter_id))
-    return sha.bin_to_base64(digest)
-        :gsub("%+", "-")
-        :gsub("/", "_")
-        :gsub("=+$", "")
+local function target_from_origin(origin)
+    if type(origin) == "table" and origin.type == "SUCCESS" then
+        origin = origin.body
+    end
+    if type(origin) == "table" and origin.type == "ERROR" then
+        logger.warn(
+            "zen-ui rakuyomi-return: getOrigin error response:",
+            tostring(origin.status), tostring(origin.message))
+        return nil
+    end
+    if origin == nil then
+        -- No embedded origin comment: legacy chapter downloaded before rakuyomi's
+        -- ZIP-comment origin feature. Unrecoverable; expected, not an error.
+        logger.dbg("zen-ui rakuyomi-return: getOrigin has no origin comment (legacy chapter)")
+        return nil
+    end
+    if type(origin) ~= "table" or type(origin.manga_id) ~= "table" then
+        local manga_id_type = "nil"
+        if type(origin) == "table" then
+            manga_id_type = type(origin.manga_id)
+        end
+        logger.warn(
+            "zen-ui rakuyomi-return: getOrigin unexpected response:",
+            "type=", type(origin),
+            "manga_id_type=", manga_id_type)
+        return nil
+    end
+    local manga_id = origin.manga_id.manga_id
+    local source_id = origin.manga_id.source_id
+    if type(manga_id) ~= "string" or type(source_id) ~= "string" then
+        logger.warn(
+            "zen-ui rakuyomi-return: getOrigin missing ids:",
+            "source=", tostring(source_id),
+            "manga=", tostring(manga_id),
+            "chapter=", tostring(origin.chapter_id))
+        return nil
+    end
+    return {
+        id = manga_id,
+        chapter_id = origin.chapter_id,
+        source = { id = source_id },
+    }
+end
+
+local function append_origin_candidate(candidates, label, object, call_style)
+    if type(object) == "table" and type(object.getOrigin) == "function" then
+        candidates[#candidates + 1] = {
+            label = label,
+            object = object,
+            call_style = call_style or "method",
+        }
+    end
+end
+
+local function append_origin_candidates(candidates, label, object)
+    -- RakuyomiShared:getOrigin is a colon method; function-style call passes the
+    -- path as self, leaving filepath nil and crashing io.open. Method style only.
+    append_origin_candidate(candidates, label .. " method", object, "method")
+end
+
+local function call_origin_candidate(candidate, path)
+    logger.dbg(
+        "zen-ui rakuyomi-return: trying getOrigin:",
+        candidate.label,
+        "style=", candidate.call_style)
+    if candidate.call_style == "function" then
+        return pcall(candidate.object.getOrigin, path)
+    end
+    return pcall(candidate.object.getOrigin, candidate.object, path)
+end
+
+local function get_origin_from_document(path)
+    local ok_registry, DocumentRegistry = pcall(require, "document/documentregistry")
+    if not ok_registry then
+        return false, DocumentRegistry
+    end
+
+    local refcount = 0
+    if type(DocumentRegistry.getReferenceCount) == "function" then
+        refcount = DocumentRegistry:getReferenceCount(path) or 0
+    end
+
+    local doc = DocumentRegistry:openDocument(path)
+    if type(doc) ~= "table" or type(doc.getOrigin) ~= "function" then
+        if doc and refcount > 0 then
+            pcall(DocumentRegistry.closeDocument, DocumentRegistry, path)
+        elseif doc and type(doc.close) == "function" then
+            pcall(doc.close, doc)
+        end
+        return false, "document has no getOrigin"
+    end
+
+    local ok_origin, origin = pcall(doc.getOrigin, doc, path)
+    if ok_origin and origin == nil then
+        ok_origin, origin = pcall(doc.getOrigin, doc)
+    end
+
+    if refcount > 0 then
+        pcall(DocumentRegistry.closeDocument, DocumentRegistry, path)
+    elseif type(doc.close) == "function" then
+        pcall(doc.close, doc)
+    else
+        pcall(DocumentRegistry.closeDocument, DocumentRegistry, path)
+    end
+
+    return ok_origin, origin
+end
+
+local function resolve_origin_target(path)
+    local candidates = {}
+
+    append_origin_candidates(candidates, "global RakuyomiShared", rawget(_G, "RakuyomiShared"))
+    append_origin_candidates(candidates, "package.loaded RakuyomiShared", package.loaded.RakuyomiShared)
+
+    local ok_shared, RakuyomiShared = pcall(require, "RakuyomiShared")
+    if ok_shared then
+        append_origin_candidates(candidates, "require RakuyomiShared", RakuyomiShared)
+    else
+        logger.dbg("zen-ui rakuyomi-return: require RakuyomiShared failed:", tostring(RakuyomiShared))
+    end
+
+    local ok_backend, Backend = pcall(require, "Backend")
+    if ok_backend then
+        append_origin_candidate(candidates, "require Backend", Backend, "function")
+    else
+        logger.dbg("zen-ui rakuyomi-return: require Backend failed:", tostring(Backend))
+    end
+
+    local fm = FileManager and FileManager.instance
+    local rakuyomi = fm and fm.rakuyomi
+    append_origin_candidates(candidates, "FileManager.rakuyomi", rakuyomi)
+    append_origin_candidates(candidates, "FileManager.rakuyomi.shared", rakuyomi and rakuyomi.shared)
+    append_origin_candidates(
+        candidates,
+        "FileManager.rakuyomi.RakuyomiShared",
+        rakuyomi and rakuyomi.RakuyomiShared)
+
+    for _i, candidate in ipairs(candidates) do
+        local ok_origin, origin = call_origin_candidate(candidate, path)
+        if ok_origin then
+            logger.dbg("zen-ui rakuyomi-return: getOrigin returned:", candidate.label)
+            local target = target_from_origin(origin)
+            if target then
+                return target, candidate.label
+            end
+        else
+            logger.warn(
+                "zen-ui rakuyomi-return: getOrigin failed:",
+                candidate.label,
+                tostring(origin))
+        end
+    end
+
+    if #candidates == 0 then
+        logger.dbg("zen-ui rakuyomi-return: no module getOrigin candidates")
+    end
+    logger.dbg("zen-ui rakuyomi-return: trying getOrigin: document")
+    local ok_doc_origin, doc_origin = get_origin_from_document(path)
+    if ok_doc_origin then
+        logger.dbg("zen-ui rakuyomi-return: getOrigin returned: document")
+        local target = target_from_origin(doc_origin)
+        if target then
+            return target, "document"
+        end
+    else
+        logger.warn("zen-ui rakuyomi-return: getOrigin failed: document", tostring(doc_origin))
+    end
+
+    return nil, "all Rakuyomi getOrigin candidates failed or returned no target"
 end
 
 function M.resolveChapterFile(path)
@@ -129,76 +293,48 @@ function M.resolveChapterFile(path)
         return nil
     end
 
-    local basename = path:match("([^/]+)%.[^./]+$")
-    if not basename then
-        logger.warn("zen-ui rakuyomi-return: resolver could not parse filename:", path)
+    local target, origin_source = resolve_origin_target(path)
+    if not target then
+        logger.warn("zen-ui rakuyomi-return: getOrigin unavailable:", tostring(origin_source))
         return nil
     end
-
-    local db = require("common/db_connection")
-    local db_path = get_data_dir() .. "/rakuyomi/database.db"
-    local conn, db_err = db.open(db_path)
-    if not conn then
-        logger.warn(
-            "zen-ui rakuyomi-return: resolver could not open database:",
-            db_path, tostring(db_err))
-        return nil
-    end
-
-    local ok, rows = pcall(conn.exec, conn, [[
-        SELECT ci.source_id, ci.manga_id, ci.chapter_id, mi.title
-        FROM chapter_informations ci
-        LEFT JOIN manga_informations mi
-          ON mi.source_id = ci.source_id AND mi.manga_id = ci.manga_id
-        LEFT JOIN chapter_state cs
-          ON cs.source_id = ci.source_id
-         AND cs.manga_id = ci.manga_id
-         AND cs.chapter_id = ci.chapter_id
-        ORDER BY CASE WHEN cs.last_read IS NULL THEN 1 ELSE 0 END,
-                 cs.last_read DESC
-    ]])
-    pcall(conn.close, conn)
-    if not ok or type(rows) ~= "table" then
-        logger.warn(
-            "zen-ui rakuyomi-return: resolver query failed:",
-            "ok=", tostring(ok),
-            "result=", tostring(rows))
-        return nil
-    end
-
-    local source_ids = rows[1] or {}
-    local manga_ids = rows[2] or {}
-    local chapter_ids = rows[3] or {}
-    local titles = rows[4] or {}
     logger.dbg(
-        "zen-ui rakuyomi-return: resolver scanning:",
-        "basename=", basename,
-        "rows=", tostring(#source_ids))
-    for i = 1, #source_ids do
-        local source_id = source_ids[i]
-        local manga_id = manga_ids[i]
-        local chapter_id = chapter_ids[i]
-        local modern_name = source_id and manga_id and chapter_id
-            and chapter_filename(source_id, manga_id, chapter_id)
-        local legacy_name = source_id and chapter_id and source_id .. "-" .. chapter_id
-        if modern_name == basename or legacy_name == basename then
-            logger.dbg(
-                "zen-ui rakuyomi-return: resolver matched:",
-                "source=", source_id,
-                "manga=", manga_id,
-                "chapter=", chapter_id,
-                "legacy=", tostring(legacy_name == basename))
-            return {
-                id = manga_id,
-                title = titles[i],
-                source = { id = source_id },
-            }
-        end
+        "zen-ui rakuyomi-return: resolver matched:",
+        "origin=", tostring(origin_source),
+        "source=", target.source.id,
+        "manga=", target.id,
+        "chapter=", tostring(target.chapter_id))
+    return target
+end
+
+function M.resolveTarget(file, reason)
+    if type(file) ~= "string" or file == "" then return nil end
+    local has_detector = type(M.isChapterFile) == "function"
+    local is_chapter = has_detector and M.isChapterFile(file) == true
+    local has_resolver = type(M.resolveChapterFile) == "function"
+    logger.dbg(
+        "zen-ui rakuyomi-return: target resolve:",
+        "reason=", tostring(reason),
+        "file=", file,
+        "has_detector=", tostring(has_detector),
+        "is_chapter=", tostring(is_chapter),
+        "has_resolver=", tostring(has_resolver))
+    if not (is_chapter and has_resolver) then return nil end
+
+    local target = M.resolveChapterFile(file)
+    if target then
+        logger.dbg(
+            "zen-ui rakuyomi-return: target resolved:",
+            "reason=", tostring(reason),
+            "target_source=", tostring(target.source and target.source.id),
+            "target_manga=", tostring(target.id))
+    else
+        logger.warn(
+            "zen-ui rakuyomi-return: owned file without target:",
+            "reason=", tostring(reason),
+            "file=", file)
     end
-    logger.warn(
-        "zen-ui rakuyomi-return: resolver found no database match:",
-        "basename=", basename,
-        "rows=", tostring(#source_ids))
+    return target
 end
 
 function M.openLibraryView(options)
@@ -405,6 +541,30 @@ function M.onStandaloneNavbarInjected(widget, exit_target_predicate)
     M.installCloseGuard(exit_target_predicate)
 end
 
+-- Capture the Rakuyomi return target for *any* book open, not only the
+-- Continue-tab resume. showReader is the single choke point every open flows
+-- through, and it broadcasts "ShowingReader" (→ onShowingReader, which persists
+-- the target) before opening. Detect chapter files here so opening from a file
+-- list / history / etc. still returns to the chapter list.
+function M.installShowReaderCapture()
+    local ReaderUI = require("apps/reader/readerui")
+    if ReaderUI._zen_rakuyomi_showReader_patched then return end
+    ReaderUI._zen_rakuyomi_showReader_patched = true
+    local orig_reader_showReader = ReaderUI.showReader
+    function ReaderUI:showReader(file, ...)
+        if type(file) == "string"
+                and rawget(_G, "__ZEN_UI_RAKUYOMI_RETURN_TARGET") == nil then
+            local target = M.resolveTarget(file, "showReader")
+            if target then
+                _G.__ZEN_UI_LIBRARY_SOURCE_TAB = "manga"
+                _G.__ZEN_UI_FORCE_SOURCE_TAB_RESTORE = true
+                _G.__ZEN_UI_RAKUYOMI_RETURN_TARGET = target
+            end
+        end
+        return orig_reader_showReader(self, file, ...)
+    end
+end
+
 function M.refreshAfterResize(widget)
     if is_library_view(widget) and type(widget.updateItems) == "function"
             and widget.item_group and widget.content_group then
@@ -444,6 +604,7 @@ local function apply_rakuyomi()
     _ = require("gettext")
 
     _G.__ZEN_UI_RAKUYOMI = M
+    M.installShowReaderCapture()
 end
 
 return apply_rakuyomi

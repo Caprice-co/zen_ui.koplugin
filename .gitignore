@@ -8,3 +8,4 @@ build
 AGENTS.md
 CLAUDE.md
 copilot-instructions.md
+__pycache__
