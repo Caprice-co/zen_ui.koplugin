@@ -79,7 +79,16 @@ local function apply_reader_top_status_bar()
     local function getWifiItem()
         local ok, NetworkMgr = pcall(require, "ui/network/manager")
         if not ok then return nil end
-        return NetworkMgr:isWifiOn() and "\u{ECA8}" or "\u{ECA9}", nil
+        if NetworkMgr:isWifiOn() then
+            -- Gray while Wi-Fi is on but has no IP yet (searching); gate on
+            -- isConnected() -- the same signal that fires onNetworkConnected ->
+            -- header refresh. ssid presence lags that event, leaving a stuck icon.
+            if NetworkMgr:isConnected() then
+                return "\u{ECA8}", nil
+            end
+            return "\u{ECA8}", nil, Blitbuffer.COLOR_DARK_GRAY
+        end
+        return "\u{ECA9}", nil
     end
 
     local function getRamItem()
@@ -275,16 +284,17 @@ local function apply_reader_top_status_bar()
         page_progress    = getPageProgressItem,
     }
 
+    -- Returns a list of { text = string, color = Blitbuffer color or nil }.
     local function collectItemTexts(order, doc_ctx)
         if type(order) ~= "table" or #order == 0 then return {} end
         local texts = {}
         for _i, key in ipairs(order) do
             local fn = item_fetchers[key]
             if fn then
-                local icon, label = fn(doc_ctx)
+                local icon, label, color = fn(doc_ctx)
                 if icon ~= nil then
                     local text = label and (icon .. label) or icon
-                    table.insert(texts, text)
+                    table.insert(texts, { text = text, color = color })
                 end
             end
         end
@@ -305,7 +315,7 @@ local function apply_reader_top_status_bar()
                 sep_w:free()
             end
             local tw = TextWidget:new{
-                text = texts[i],
+                text = texts[i].text,
                 face = face,
                 fgcolor = Blitbuffer.COLOR_BLACK,
                 padding = 0,
@@ -336,9 +346,9 @@ local function apply_reader_top_status_bar()
                 table.insert(widgets, sep_w)
             end
             local tw = TextWidget:new{
-                text = texts[i],
+                text = texts[i].text,
                 face = face,
-                fgcolor = Blitbuffer.COLOR_BLACK,
+                fgcolor = texts[i].color or Blitbuffer.COLOR_BLACK,
                 padding = 0,
             }
             table.insert(group, tw)
@@ -347,8 +357,8 @@ local function apply_reader_top_status_bar()
 
         if max_width and natural_w > max_width then
             for _i, w in ipairs(widgets) do if w.free then w:free() end end
-            local joined = texts[1] or ""
-            for i = 2, #texts do joined = joined .. sep .. texts[i] end
+            local joined = texts[1] and texts[1].text or ""
+            for i = 2, #texts do joined = joined .. sep .. texts[i].text end
             local tw = TextWidget:new{
                 text      = joined,
                 face      = face,
@@ -779,6 +789,25 @@ local function apply_reader_top_status_bar()
             ReaderUI.onNotCharging = function(rui, ...)
                 if orig_onNotCharging then orig_onNotCharging(rui, ...) end
                 scheduleChargingRefresh()
+            end
+
+            -- Repaint on network state changes so the Wi-Fi icon flips
+            -- gray (searching) -> blue/red (connected/off) without a page turn.
+            local function repaintOnNetwork()
+                if not (view.ui and view.ui.document) then return end
+                if is_view_active_top(view) then
+                    repaintHeader(view)
+                end
+            end
+            local orig_onNetworkConnected    = ReaderUI.onNetworkConnected
+            local orig_onNetworkDisconnected = ReaderUI.onNetworkDisconnected
+            ReaderUI.onNetworkConnected = function(rui, ...)
+                if orig_onNetworkConnected then orig_onNetworkConnected(rui, ...) end
+                repaintOnNetwork()
+            end
+            ReaderUI.onNetworkDisconnected = function(rui, ...)
+                if orig_onNetworkDisconnected then orig_onNetworkDisconnected(rui, ...) end
+                repaintOnNetwork()
             end
         end
     end

@@ -627,6 +627,8 @@ function M.build(ctx)
                     config.browser_cover_badges.dim_finished_books =
                         config.browser_cover_badges.dim_finished_books ~= true
                     plugin:saveConfig()
+                    local ui = require("apps/filemanager/filemanager").instance
+                    if ui and ui.file_chooser then ui.file_chooser:updateItems() end
                     UIManager:setDirty(nil, "full")
                 end,
             },

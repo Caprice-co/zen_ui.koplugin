@@ -89,6 +89,12 @@ local function apply_browser_folder_cover()
         return features.automatic_series_grouping ~= false
     end
 
+    local function _dim_finished_books_enabled()
+        local plugin = _plugin or rawget(_G, "__ZEN_UI_PLUGIN")
+        local cfg = plugin and plugin.config and plugin.config.browser_cover_badges
+        return type(cfg) == "table" and cfg.dim_finished_books == true
+    end
+
     local function _folder_sort_override(path)
         local fsd_api = rawget(_G, "__ZEN_FOLDER_SORT")
         if not (fsd_api and type(fsd_api.get) == "function") then
@@ -259,7 +265,7 @@ local function apply_browser_folder_cover()
 
     local function _item_table_stable_key(path)
         local filter = FileChooser.show_filter and FileChooser.show_filter.status
-        return string.format("%s|%s|%s|%s|%s|%s|%s|%s",
+        return string.format("%s|%s|%s|%s|%s|%s|%s|%s|%s",
             path,
             G_reader_settings:readSetting("collate", "strcoll"),
             tostring(G_reader_settings:isTrue("collate_mixed")),
@@ -267,7 +273,8 @@ local function apply_browser_folder_cover()
             tostring(FileChooser.show_hidden),
             tostring(filter),
             _folder_sort_key(path),
-            tostring(_automatic_series_grouping_enabled()))
+            tostring(_automatic_series_grouping_enabled()),
+            tostring(_dim_finished_books_enabled()))
     end
 
     local function _item_table_key(path)

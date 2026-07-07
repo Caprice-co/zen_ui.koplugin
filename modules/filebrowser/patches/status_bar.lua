@@ -302,6 +302,7 @@ local function apply_status_bar()
 
     local colors = {
         wifi_on = Blitbuffer.ColorRGB32(0x33, 0x99, 0xFF, 0xFF),     -- blue
+        wifi_searching = Blitbuffer.COLOR_DARK_GRAY,
         wifi_off = Blitbuffer.ColorRGB32(0xDD, 0x33, 0x33, 0xFF),   -- red
         disk = Blitbuffer.ColorRGB32(0x33, 0xAA, 0x55, 0xFF),       -- green
         ram = Blitbuffer.ColorRGB32(0x33, 0xAA, 0x55, 0xFF),        -- green
@@ -322,7 +323,13 @@ local function apply_status_bar()
 
     local function getWifiInfo()
         if NetworkMgr:isWifiOn() then
-            return "\u{ECA8}", nil, colors.wifi_on
+            -- Gate on isConnected() (has IP), the same signal that fires
+            -- NetworkConnected -> onNetworkConnected -> status bar refresh.
+            -- ssid presence lags/mismatches that event, leaving a stuck gray icon.
+            if NetworkMgr:isConnected() then
+                return "\u{ECA8}", nil, colors.wifi_on
+            end
+            return "\u{ECA8}", nil, colors.wifi_searching, nil, true
         else
             return "\u{ECA9}", nil, colors.wifi_off
         end
@@ -458,14 +465,15 @@ local function apply_status_bar()
             local builtin = item_fetchers[key]
             local fn = builtin or getRegistryFetcher(key)
             if fn then
-                local icon, label, color, icon_image
+                local icon, label, color, icon_image, force_color
                 if builtin then
-                    icon, label, color, icon_image = fn()
+                    icon, label, color, icon_image, force_color = fn()
                 else
                     -- External fetchers are untrusted; a throw must not break the bar.
                     local ok, a, b, c, d = pcall(fn)
                     if ok then icon, label, color, icon_image = a, b, c, d end
                 end
+                local effective_color = color and (use_color or force_color) and color or nil
                 local has_icon = icon ~= nil and icon ~= ""
                 local has_label = label ~= nil and label ~= ""
                 if has_icon or has_label then
@@ -473,11 +481,11 @@ local function apply_status_bar()
                         table.insert(group, TextWidget:new{ text = sep, face = f(), bold = bold })
                     end
                     if not builtin and has_icon then
-                        local widget_class = use_color and color and ColorTextWidget or TextWidget
+                        local widget_class = effective_color and ColorTextWidget or TextWidget
                         local icon_opts = {
                             text = icon, face = iconFace(), bold = bold,
                         }
-                        if use_color and color then icon_opts.fgcolor = color end
+                        if effective_color then icon_opts.fgcolor = effective_color end
 
                         local ImageWidget = require("ui/widget/imagewidget")
                         table.insert(group, icon_image and ImageWidget:new {
@@ -489,7 +497,7 @@ local function apply_status_bar()
                         if has_label then
                             table.insert(group, TextWidget:new{ text = label, face = f(), bold = bold })
                         end
-                    elseif use_color and color and has_icon then
+                    elseif effective_color and has_icon then
                         local ImageWidget = require("ui/widget/imagewidget")
                         table.insert(group, icon_image and ImageWidget:new {
                             file = icon,
@@ -497,7 +505,7 @@ local function apply_status_bar()
                             height = Screen:scaleBySize(f().size * 1.5),
                             alpha = true, is_icon = true
                         } or ColorTextWidget:new {
-                            text = icon, face = f(), fgcolor = color, bold = bold,
+                            text = icon, face = f(), fgcolor = effective_color, bold = bold,
                         })
                         if has_label then
                             table.insert(group, TextWidget:new{ text = label, face = f(), bold = bold })

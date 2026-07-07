@@ -59,6 +59,12 @@ local function apply_automatic_series_grouping()
         return features.automatic_series_grouping ~= false
     end
 
+    local function is_dim_finished_enabled()
+        local plugin = get_plugin()
+        local cfg = plugin and plugin.config and plugin.config.browser_cover_badges
+        return type(cfg) == "table" and cfg.dim_finished_books == true
+    end
+
     local function is_directory(item)
         return item.is_directory
             or (item.attr and item.attr.mode == "directory")
@@ -191,6 +197,47 @@ local function apply_automatic_series_grouping()
         if file_chooser and file_chooser._zen_clear_item_table_cache then
             file_chooser:_zen_clear_item_table_cache()
         end
+    end
+
+    local book_status
+    local function get_book_status()
+        if not book_status then
+            book_status = require("common/book_status")
+        end
+        return book_status
+    end
+
+    local function get_item_status(item)
+        local status_api = get_book_status()
+        if type(item) ~= "table" then return "new" end
+        if item._zen_effective_status then return item._zen_effective_status end
+        if item.status then
+            return status_api.getEffectiveStatus(item.status, item.percent_finished)
+        end
+
+        local path = item.path or item.file
+        if path then
+            local ok, status = pcall(status_api.getEffectiveStatusFromFile, path)
+            if ok and status then return status end
+        end
+        return status_api.getEffectiveStatus(item.status, item.percent_finished)
+    end
+
+    local function set_series_status(group)
+        if not is_dim_finished_enabled() then return end
+        if type(group) ~= "table" or type(group.series_items) ~= "table"
+                or #group.series_items == 0 then
+            return
+        end
+        for _i, item in ipairs(group.series_items) do
+            if get_item_status(item) ~= "complete" then
+                return
+            end
+        end
+        group.status = "complete"
+        group.percent_finished = 1
+        group.sort_percent = 1
+        group._zen_effective_status = "complete"
     end
 
     local AutomaticSeries = {}
@@ -356,6 +403,7 @@ local function apply_automatic_series_grouping()
                 end
             else
                 group.mandatory = tostring(#group.series_items) .. " \u{F016}"
+                set_series_status(group)
                 self:sortSeriesItems(group.series_items, group, file_chooser)
             end
         end
