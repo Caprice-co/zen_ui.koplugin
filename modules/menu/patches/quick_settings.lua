@@ -113,6 +113,9 @@ local function apply_quick_settings()
         next_custom_id = 0,
     }
 
+    local filebrowser_slots = { "filebrowser", "FilebrowserPlus", "filebrowserplus" }
+    local filebrowserplus_slots = { "FilebrowserPlus", "filebrowserplus" }
+
     local config
 
     local function loadConfig()
@@ -132,17 +135,22 @@ local function apply_quick_settings()
                 end
             end
             -- Auto-enable plugin-dependent buttons on first run if the plugin is installed
-            local function autoEnable(key, slot)
+            local function autoEnable(key, slots)
                 if first_time[key] then
                     local ok_fm, FileManager = pcall(require, "apps/filemanager/filemanager")
                     local ok_ru, ReaderUI    = pcall(require, "apps/reader/readerui")
                     local ui = (ok_fm and FileManager.instance) or (ok_ru and ReaderUI.instance)
-                    if ui and ui[slot] then
-                        config.show_buttons[key] = true
+                    if ui then
+                        for _i, slot in ipairs(slots) do
+                            if ui[slot] then
+                                config.show_buttons[key] = true
+                                break
+                            end
+                        end
                     end
                 end
             end
-            autoEnable("filebrowser",    "filebrowser")
+            autoEnable("filebrowser", filebrowser_slots)
         else
             config.show_buttons = utils.deepcopy(config_default.show_buttons)
             -- Auto-enable plugin-dependent buttons on first ever config creation
@@ -150,7 +158,12 @@ local function apply_quick_settings()
             local ok_ru, ReaderUI    = pcall(require, "apps/reader/readerui")
             local ui = (ok_fm and FileManager.instance) or (ok_ru and ReaderUI.instance)
             if ui then
-                if ui.filebrowser then config.show_buttons.filebrowser    = true end
+                for _i, slot in ipairs(filebrowser_slots) do
+                    if ui[slot] then
+                        config.show_buttons.filebrowser = true
+                        break
+                    end
+                end
             end
         end
         if type(config.button_order) ~= "table" then
@@ -244,6 +257,121 @@ local function apply_quick_settings()
         local ok_r, RU = pcall(require, "apps/reader/readerui")
         local ui = (ok_f and FM.instance) or (ok_r and RU.instance)
         return ui == nil or ui[slot] ~= nil
+    end
+
+    local function hasAnyPlugin(slots)
+        for _i, slot in ipairs(slots) do
+            if hasPlugin(slot) then return true end
+        end
+        return false
+    end
+
+    local filebrowser_plugins = {
+        {
+            slots = { "filebrowser" },
+            key = "filebrowser",
+            pid_path = "/tmp/filebrowser_koreader.pid",
+            toggle = "onToggleFilebrowser",
+        },
+        {
+            slots = filebrowserplus_slots,
+            key = "filebrowserplus",
+            pid_path = "/tmp/filebrowserplus_koreader.pid",
+            toggle = "onToggleFilebrowserPlusServer",
+            event = "ToggleFilebrowserPlusServer",
+        },
+    }
+
+    local function getActiveUI()
+        local ok_f, FileManager = pcall(require, "apps/filemanager/filemanager")
+        local ok_r, ReaderUI = pcall(require, "apps/reader/readerui")
+        return (ok_f and FileManager.instance) or (ok_r and ReaderUI.instance)
+    end
+
+    local function hasLoadedPluginSlot(slots)
+        local ui = getActiveUI()
+        if not ui then return false end
+        for _i, slot in ipairs(slots) do
+            if ui[slot] ~= nil then return true end
+        end
+        return false
+    end
+
+    local function isCallable(value)
+        if type(value) == "function" then return true end
+        local mt = type(value) == "table" and getmetatable(value) or nil
+        return type(mt) == "table" and type(mt.__call) == "function"
+    end
+
+    local function getLoadedPlugin(candidate)
+        local ok_loader, loader = pcall(require, "pluginloader")
+        if not ok_loader or not loader then return nil end
+        local loaded = loader.loaded_plugins
+        if type(loaded) == "table" then
+            local plugin = loaded[candidate.key]
+            for _i, slot in ipairs(candidate.slots) do
+                plugin = plugin or loaded[slot]
+            end
+            if type(plugin) == "table" then return plugin end
+        end
+        if type(loader.getPluginInstance) == "function" then
+            local ok_plugin, plugin = pcall(loader.getPluginInstance, loader, candidate.key)
+            if ok_plugin and type(plugin) == "table" then return plugin end
+        end
+        return nil
+    end
+
+    local function getCandidatePlugin(candidate)
+        local ui = getActiveUI()
+        if ui then
+            for _i, slot in ipairs(candidate.slots) do
+                if ui[slot] then return ui[slot] end
+            end
+        end
+        return getLoadedPlugin(candidate)
+    end
+
+    local function getFilebrowserPlugin(prefer_running)
+        local prefer_plus = hasLoadedPluginSlot(filebrowserplus_slots)
+        local fallback
+        local plus_fallback
+        for _i, candidate in ipairs(filebrowser_plugins) do
+            local plugin = getCandidatePlugin(candidate)
+            if plugin then
+                if prefer_running and type(plugin.isRunning) == "function" and plugin:isRunning() then
+                    return plugin, candidate
+                end
+                if isCallable(plugin[candidate.toggle]) then
+                    if candidate.key == "filebrowserplus" then
+                        plus_fallback = plus_fallback or { plugin, candidate }
+                    elseif fallback == nil then
+                        fallback = { plugin, candidate }
+                    end
+                end
+            end
+        end
+        if prefer_plus and plus_fallback then
+            return plus_fallback[1], plus_fallback[2]
+        end
+        if fallback then
+            return fallback[1], fallback[2]
+        end
+        if plus_fallback then
+            return plus_fallback[1], plus_fallback[2]
+        end
+        return nil
+    end
+
+    local function toggleFilebrowserPlugin(plugin, candidate)
+        if plugin and candidate and isCallable(plugin[candidate.toggle]) then
+            plugin[candidate.toggle](plugin)
+            return true
+        end
+        if candidate and candidate.event then
+            UIManager:broadcastEvent(Event:new(candidate.event))
+            return true
+        end
+        return false
     end
 
     local function showUnavailable()
@@ -699,20 +827,17 @@ local function apply_quick_settings()
         filebrowser = {
             icon = "quick_filebrowser",
             label = _("Filebrowser"),
-            visible_func = function() return hasPlugin("filebrowser") end,
+            visible_func = function() return hasAnyPlugin(filebrowser_slots) end,
             active_func = function()
-                -- Fast check: just test if the pidfile exists
-                local pid_path = "/tmp/filebrowser_koreader.pid"
-                local f = io.open(pid_path, "r")
-                if f then f:close() return true end
+                for _i, candidate in ipairs(filebrowser_plugins) do
+                    local f = io.open(candidate.pid_path, "r")
+                    if f then f:close() return true end
+                end
                 return false
             end,
             callback = function(touch_menu)
-                local ok_f, FileManager = pcall(require, "apps/filemanager/filemanager")
-                local ok_r, ReaderUI = pcall(require, "apps/reader/readerui")
-                local ui = (ok_f and FileManager.instance) or (ok_r and ReaderUI.instance)
-                if ui and ui.filebrowser then
-                    ui.filebrowser:onToggleFilebrowser()
+                local plugin, candidate = getFilebrowserPlugin(true)
+                if toggleFilebrowserPlugin(plugin, candidate) then
                     UIManager:scheduleIn(1.5, function()
                         if touch_menu.item_table and touch_menu.item_table.panel then
                             touch_menu:updateItems(1)

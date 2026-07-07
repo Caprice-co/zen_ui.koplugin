@@ -414,8 +414,13 @@ end
 function M.onToggleIncognitoMode(plugin)
     local features = plugin and plugin.config and plugin.config.features
     if type(features) ~= "table" then return false end
-    features.incognito_mode = not features.incognito_mode
+    local enabling = not features.incognito_mode
+    features.incognito_mode = enabling
     save_config(plugin)
+    require("ui/uimanager"):show(require("ui/widget/infomessage"):new{
+        text = enabling and _("Incognito mode enabled") or _("Incognito mode disabled"),
+        timeout = 3,
+    })
     return true
 end
 
