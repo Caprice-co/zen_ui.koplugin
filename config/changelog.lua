@@ -159,10 +159,12 @@ return {
         "Continuation of 2.3 betas but I borked the updates by releasing 2.2.2 while doing 2.3 betas",
         "Add row break in Launcher",
         "Add unified push/pull sync button to Actions",
+        "Add Incognito mode to Controls/Actions",
         "Add home api for 3rd party plugins",
         "Update status bar API to allow images",
         "Update Zen Updater to support Android ARM",
         "Update Zen Bug Reporter to get Android crash logs",
+        "Update dim automatic folder covers when all books read (and dim enabled)",
         "Always open Rakuyomi after exiting Reader from Rakuyomi owned manga",
         "Bug fixes"
     },
