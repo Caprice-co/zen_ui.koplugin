@@ -220,6 +220,7 @@ local defaults = {
     highlight_lookup = {
         allow_unknown_items = false,
         show_wikipedia      = false,
+        show_ai_assistant   = false,
     },
     dict_quick_lookup = {},
 
