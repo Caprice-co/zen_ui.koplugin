@@ -62,6 +62,18 @@ local function apply_navbar()
         return type(features) == "table" and features.restore_library_view == true
     end
 
+    local function rakuyomi_return_to_chapter_list_on_exit_enabled()
+        local rakuyomi = zen_plugin.config and zen_plugin.config.rakuyomi
+        if type(rakuyomi) ~= "table" then return true end
+        if rakuyomi.return_to_chapter_list_on_exit ~= nil then
+            return rakuyomi.return_to_chapter_list_on_exit ~= false
+        end
+        if rakuyomi.return_to_chapter_list_on_reader_exit ~= nil then
+            return rakuyomi.return_to_chapter_list_on_reader_exit ~= false
+        end
+        return true
+    end
+
     -- === Layout constants ===
 
     local navbar_icon_size = Screen:scaleBySize(34)
@@ -542,6 +554,7 @@ local function apply_navbar()
         local resume_rakuyomi = type(Rakuyomi.isChapterFile) == "function"
             and Rakuyomi.isChapterFile(last_file)
         local rakuyomi_return_target = resume_rakuyomi
+            and rakuyomi_return_to_chapter_list_on_exit_enabled()
             and type(Rakuyomi.resolveChapterFile) == "function"
             and Rakuyomi.resolveChapterFile(last_file) or nil
         logger.dbg(
@@ -2494,11 +2507,13 @@ local function apply_navbar()
         withBgTabRefreshSuppressed(function()
             local Rakuyomi = getRakuyomi()
             local target = state.rakuyomi_return_target
-            if not target and state.tab == "manga" then
+            if not target and state.tab == "manga"
+                    and rakuyomi_return_to_chapter_list_on_exit_enabled() then
                 target = resolveRakuyomiTarget(focused_file, "showFiles")
                 state.rakuyomi_return_target = target
             end
-            local has_opener = type(Rakuyomi.openChapterList) == "function"
+            local has_opener = rakuyomi_return_to_chapter_list_on_exit_enabled()
+                and type(Rakuyomi.openChapterList) == "function"
             local opened_chapters = target and has_opener
                 and Rakuyomi.openChapterList(target)
             logger.dbg(

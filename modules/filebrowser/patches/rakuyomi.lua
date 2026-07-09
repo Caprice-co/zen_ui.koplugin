@@ -21,6 +21,19 @@ local function is_library_view(widget)
     return widget and widget.name == "library_view"
 end
 
+local function return_to_chapter_list_on_exit_enabled()
+    local plugin = rawget(_G, "__ZEN_UI_PLUGIN")
+    local rakuyomi = plugin and plugin.config and plugin.config.rakuyomi
+    if type(rakuyomi) ~= "table" then return true end
+    if rakuyomi.return_to_chapter_list_on_exit ~= nil then
+        return rakuyomi.return_to_chapter_list_on_exit ~= false
+    end
+    if rakuyomi.return_to_chapter_list_on_reader_exit ~= nil then
+        return rakuyomi.return_to_chapter_list_on_reader_exit ~= false
+    end
+    return true
+end
+
 function M.isLibraryView(widget)
     return is_library_view(widget)
 end
@@ -554,8 +567,11 @@ function M.installShowReaderCapture()
     function ReaderUI:showReader(file, ...)
         if type(file) == "string"
                 and rawget(_G, "__ZEN_UI_RAKUYOMI_RETURN_TARGET") == nil then
-            local target = M.resolveTarget(file, "showReader")
-            if target then
+            local is_chapter = M.isChapterFile(file) == true
+            local return_to_chapter_list = return_to_chapter_list_on_exit_enabled()
+            local target = is_chapter and return_to_chapter_list
+                and M.resolveTarget(file, "showReader") or nil
+            if target or (is_chapter and not return_to_chapter_list) then
                 _G.__ZEN_UI_LIBRARY_SOURCE_TAB = "manga"
                 _G.__ZEN_UI_FORCE_SOURCE_TAB_RESTORE = true
                 _G.__ZEN_UI_RAKUYOMI_RETURN_TARGET = target

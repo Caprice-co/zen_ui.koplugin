@@ -165,7 +165,10 @@ return {
         "Update Zen Updater to support Android ARM",
         "Update Zen Bug Reporter to get Android crash logs",
         "Update dim automatic folder covers when all books read (and dim enabled)",
-        "Always open Rakuyomi after exiting Reader from Rakuyomi owned manga",
+        "Moved Navbar settings to Library > Navbar",
+        "Moved Advanced settings to About > Advanced",
+        "Moved Global settings to Extras",
+        "Even better Rakuyomi integration",
         "Bug fixes"
     },
 
