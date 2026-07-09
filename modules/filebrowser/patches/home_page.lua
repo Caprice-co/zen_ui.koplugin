@@ -680,13 +680,23 @@ local function build_data_provider(cfg, dcfg)
         local hist = ReadHistory.hist or {}
         local lfs = require("libs/libkoreader-lfs")
         local paths = require("common/paths")
+        local function is_rakuyomi_history_path(path)
+            if path:lower():sub(-4) ~= ".cbz" then return false end
+            local Rakuyomi = rawget(_G, "__ZEN_UI_RAKUYOMI")
+            if not (type(Rakuyomi) == "table"
+                    and type(Rakuyomi.isChapterFile) == "function") then
+                return false
+            end
+            local ok_chapter, is_chapter = pcall(Rakuyomi.isChapterFile, path)
+            return ok_chapter and is_chapter == true
+        end
 
         for _i, entry in ipairs(hist) do
             local path = entry and entry.file
             if type(path) == "string"
                     and path ~= ""
-                    and paths.isInHomeDir(path)
-                    and lfs.attributes(path, "mode") == "file" then
+                    and lfs.attributes(path, "mode") == "file"
+                    and (paths.isInHomeDir(path) or is_rakuyomi_history_path(path)) then
                 table.insert(history_cached, path)
             end
         end

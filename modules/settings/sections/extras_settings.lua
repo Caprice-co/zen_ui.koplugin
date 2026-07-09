@@ -106,15 +106,29 @@ function M.build(ctx)
         if type(config.rakuyomi) ~= "table" then
             config.rakuyomi = {}
         end
+        local migrated_rakuyomi = false
         if config.rakuyomi.return_to_chapter_list_on_exit == nil then
             if config.rakuyomi.return_to_chapter_list_on_reader_exit ~= nil then
                 config.rakuyomi.return_to_chapter_list_on_exit =
                     config.rakuyomi.return_to_chapter_list_on_reader_exit
-                config.rakuyomi.return_to_chapter_list_on_reader_exit = nil
-                plugin:saveConfig()
+                migrated_rakuyomi = true
             else
                 config.rakuyomi.return_to_chapter_list_on_exit = true
             end
+        end
+        if config.rakuyomi.return_to_chapter_list_on_reader_exit ~= nil then
+            config.rakuyomi.return_to_chapter_list_on_reader_exit = nil
+            migrated_rakuyomi = true
+        end
+        if config.rakuyomi.return_to_chapter_on_reader_exit ~= nil then
+            config.rakuyomi.return_to_chapter_on_reader_exit = nil
+            migrated_rakuyomi = true
+        end
+        if config.rakuyomi.reverse_page_scrolling == nil then
+            config.rakuyomi.reverse_page_scrolling = false
+        end
+        if migrated_rakuyomi then
+            plugin:saveConfig()
         end
         table.insert(items, {
             text = _("Rakuyomi"),
@@ -128,6 +142,24 @@ function M.build(ctx)
                         config.rakuyomi.return_to_chapter_list_on_exit =
                             config.rakuyomi.return_to_chapter_list_on_exit == false
                         plugin:saveConfig()
+                        if touchmenu_instance then touchmenu_instance:updateItems() end
+                    end,
+                },
+                {
+                    text = _("Reverse page scrolling"),
+                    checked_func = function()
+                        return config.rakuyomi.reverse_page_scrolling == true
+                    end,
+                    callback = function(touchmenu_instance)
+                        local enabled = config.rakuyomi.reverse_page_scrolling ~= true
+                        config.rakuyomi.reverse_page_scrolling = enabled
+                        G_reader_settings:saveSetting("inverse_reading_order", enabled)
+                        plugin:saveConfig()
+                        local RakuyomiPatch = rawget(_G, "__ZEN_UI_RAKUYOMI")
+                        if type(RakuyomiPatch) == "table"
+                                and type(RakuyomiPatch.applyReversePageScrollingToCurrentReader) == "function" then
+                            RakuyomiPatch.applyReversePageScrollingToCurrentReader(enabled)
+                        end
                         if touchmenu_instance then touchmenu_instance:updateItems() end
                     end,
                 },

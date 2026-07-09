@@ -20,6 +20,7 @@ local defaults = {
     },
     rakuyomi = {
         return_to_chapter_list_on_exit = false,
+        reverse_page_scrolling = false,
     },
     localization = {
         default_locale = "en",
