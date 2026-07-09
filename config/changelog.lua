@@ -168,7 +168,7 @@ return {
         "Moved Navbar settings to Library > Navbar",
         "Moved Advanced settings to About > Advanced",
         "Moved Global settings to Extras",
-        "Even better Rakuyomi integration",
+        "Even better Rakuyomi integration (Extras > Rakuyomi)",
         "Bug fixes"
     },
 
