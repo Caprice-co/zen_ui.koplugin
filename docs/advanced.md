@@ -41,7 +41,7 @@ Tap and hold any item to open the OPDS context menu for per-item actions.
 | Default catalog | Sets a default OPDS catalog that opens directly when launching OPDS. |
 
 ## Custom Icons
-To enable custom icons, first enable the setting in Advanced > Allow custom icons. Then place your icons in the `/koreader/icons` folder. Any icon that Zen UI uses will prefer the icons placed in the `koreader/icons` folder when enabled. There will be a custom icon pack loader in the future. 
+To enable custom icons, first enable the setting in Advanced > Allow custom icons. Then place your icons in the `/koreader/icons` folder. Any icon that Zen UI uses will prefer the icons placed in the `/koreader/icons` folder when enabled. There will be a custom icon pack loader in the future. 
 > Note: Any icons placed directly inside the Zen UI plugin i.e `/koreader/plugins/zen_ui.koplugin/icons` folder will be erased on updates so don't put your custom icons here.
 
 ## Setting reference
