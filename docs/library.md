@@ -97,10 +97,10 @@ Tap and hold any book, folder, or the current folder in the Library/Navbar. This
 
 ![Context menu](/images/zen_ui/context_menu.png)
 
-# Display mode & sorting
+## Display mode & sorting
 Tap + Hold on the Navbar (or any empty space) to open the context menu for the folder you are viewing (including your libraries Home folder). From here you can change the folder's display mode, sorting, and status filter on the fly. Each folder remembers its own display and sorting preferences independently, so you can browse one folder as a mosaic sorted by title and another as a detailed list sorted by recently read, and each keeps its settings across sessions.
 
-# Filesystem
+## Filesystem
 If you want to navigate your filesystem (inside or out of Zen mode) you should disable the locking of the home folder. Settings > Library > Home folder > Lock home folder. This will allow you to freely navigate the filesystem on your device.
 
 ### Book actions
