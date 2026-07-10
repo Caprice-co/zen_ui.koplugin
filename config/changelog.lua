@@ -171,6 +171,7 @@ return {
         "Moved Advanced settings to About > Advanced",
         "Moved Global settings to Extras",
         "Ignore English articles in title sort",
+        "Persist library rotation state",
         "Bug fixes"
     },
 
