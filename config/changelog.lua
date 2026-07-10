@@ -161,6 +161,7 @@ return {
         "Add unified push/pull sync button to Actions",
         "Add Incognito mode to Controls/Actions",
         "Add AI Assistant icon in lookup/highlight",
+        "Add Zen TOC action for gestures/launcher",
         "Add option to center books in Home strip widgets",
         "Add home API for plugin developers",
         "Update status bar API to allow images",
