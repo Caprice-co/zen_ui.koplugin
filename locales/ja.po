@@ -1971,6 +1971,9 @@ msgstr "アイコンの上に下線"
 msgid "Uniform covers"
 msgstr "均一な表紙"
 
+msgid "Unavailable"
+msgstr "利用できません"
+
 msgid "Unknown"
 msgstr "不明"
 

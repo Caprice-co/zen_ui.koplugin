@@ -1,9 +1,11 @@
 dist
 .DS_Store
-*.md
 ___pycache___
 *.pyc
 .venv
 build
 .luarocks
 AGENTS.md
+CLAUDE.md
+copilot-instructions.md
+__pycache__

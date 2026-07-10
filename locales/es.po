@@ -1977,6 +1977,9 @@ msgstr "Subrayado sobre el icono"
 msgid "Uniform covers"
 msgstr "Portadas uniformes"
 
+msgid "Unavailable"
+msgstr "No disponible"
+
 msgid "Unknown"
 msgstr "Desconocido"
 

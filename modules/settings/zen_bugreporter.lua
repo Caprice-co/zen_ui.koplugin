@@ -293,6 +293,14 @@ function M._do_submit(ctx, bug_title, description, github_username)
                          .. (firmware ~= "n/a" and ("\n- Firmware: " .. firmware) or "")
                          .. "\n- Language: " .. language
 
+        local ok_android, android = pcall(require, "android")
+        if ok_android and type(android.dumpLogs) == "function" then
+            local dump_ok, dump_err = pcall(android.dumpLogs)
+            if not dump_ok then
+                logger.warn("ZenBugReporter: Android log dump failed:", tostring(dump_err))
+            end
+        end
+
         -- Read crash.log from the KOReader data directory.
         local ok_ds, DataStorage = pcall(require, "datastorage")
         local data_dir = ok_ds and DataStorage:getDataDir() or nil

@@ -3,6 +3,7 @@
 -- release.zip asset, unpacks it in-place, and prompts for a KOReader restart.
 
 local _ = require("gettext")
+local Archiver = require("ffi/archiver")
 local json = require("json")
 local logger = require("logger")
 local ConfigManager = require("config/manager")
@@ -448,7 +449,27 @@ local function read_sha_from_command(cmd)
     return nil
 end
 
+-- Pure-Lua SHA-256 via KOReader's bundled ffi/sha2 (no external tools needed).
+local function compute_sha256_native(path)
+    local ok_sha, sha2 = pcall(require, "ffi/sha2")
+    if not ok_sha or not sha2 or not sha2.sha256 then return nil end
+    local f = io.open(path, "rb")
+    if not f then return nil end
+    local append = sha2.sha256()
+    while true do
+        local chunk = f:read(64 * 1024)
+        if not chunk then break end
+        append(chunk)
+    end
+    f:close()
+    local ok_digest, digest = pcall(append)
+    if not ok_digest or type(digest) ~= "string" then return nil end
+    return digest:lower()
+end
+
 local function compute_sha256(path)
+    local native = compute_sha256_native(path)
+    if native then return native end
     local q = string.format("%q", path)
     return read_sha_from_command("shasum -a 256 " .. q .. " 2>/dev/null")
         or read_sha_from_command("sha256sum " .. q .. " 2>/dev/null")
@@ -638,7 +659,7 @@ local function do_network_check()
         logger.warn("ZenUpdater: no response from releases API")
         local ok_nm, NetworkMgr = pcall(require, "ui/network/manager")
         if ok_nm and NetworkMgr and not NetworkMgr:isWifiOn() then
-            M._last_error = _("No network connection.")
+            M._last_error = _("Network unavailable.")
         else
             M._last_error = _("Could not reach update server.")
         end
@@ -647,7 +668,7 @@ local function do_network_check()
 
     local entries = parse_release_entries(body)
     if not entries then
-        M._last_error = _("Could not read release data from update server.")
+        M._last_error = _("Could not get release from update server.")
         return false
     end
 
@@ -738,7 +759,38 @@ local function build_single_release_scroll_text(notes, version)
     return text
 end
 
+local function call_device_bool(name)
+    local ok_dev, Device = pcall(require, "device")
+    if not ok_dev or not Device or type(Device[name]) ~= "function" then
+        return false
+    end
+    local ok, value = pcall(Device[name], Device)
+    if ok then return value == true end
+    ok, value = pcall(Device[name])
+    return ok and value == true
+end
+
+local function is_sdl_wayland_desktop()
+    if os.getenv("WAYLAND_DISPLAY") == nil and os.getenv("SDL_VIDEODRIVER") ~= "wayland" then
+        return false
+    end
+    if type(jit) == "table" and jit.os ~= "Linux" and jit.os ~= "BSD" and jit.os ~= "POSIX" then
+        return false
+    end
+    return call_device_bool("isSDL") or call_device_bool("isDesktop")
+end
+
+local function dismissable_or_in_process(Trapper, task, trap_widget, task_returns_simple_string)
+    if is_sdl_wayland_desktop() then
+        logger.warn("ZenUpdater: running update task in-process on SDL/Wayland to avoid EGL fork crash")
+        return true, task()
+    end
+    return Trapper:dismissableRunInSubprocess(task, trap_widget, task_returns_simple_string)
+end
+
 --- Run do_network_check() in a non-blocking subprocess via Trapper.
+--- On SDL/Wayland desktop this falls back to an in-process call because
+--- forking with live EGL state can abort inside egl-wayland.
 --- setup_fn(co) -- optional; called with the coroutine so the caller can wire
 ---                  a cancel button via coroutine.resume(co, false).
 --- on_done(net_ok) -- called when the subprocess completes.
@@ -748,10 +800,10 @@ local function network_check_async(trap_widget, setup_fn, on_done, on_cancelled)
     Trapper:wrap(function()
         local co = coroutine.running()
         if setup_fn then setup_fn(co) end
-        local completed, net_ok, has_upd, latest_ver, dl_url, latest_sha256, latest_notes =
-            Trapper:dismissableRunInSubprocess(function()
+        local completed, net_ok, has_upd, latest_ver, dl_url, latest_sha256, latest_notes, last_error =
+            dismissable_or_in_process(Trapper, function()
                 local ok = do_network_check()
-                return ok, M._has_update, M._latest_ver, M._dl_url, M._latest_sha256, M._latest_notes
+                return ok, M._has_update, M._latest_ver, M._dl_url, M._latest_sha256, M._latest_notes, M._last_error
             end, trap_widget)
         if completed and net_ok then
             M._has_update = has_upd
@@ -759,6 +811,11 @@ local function network_check_async(trap_widget, setup_fn, on_done, on_cancelled)
             M._dl_url     = dl_url
             M._latest_sha256 = latest_sha256
             M._latest_notes = latest_notes
+        end
+        -- On the subprocess path, do_network_check() mutates child state, so
+        -- copy the returned status back into the parent.
+        if completed then
+            M._last_error = last_error
         end
         if not completed then
             if on_cancelled then on_cancelled() end
@@ -943,122 +1000,31 @@ local function get_file_size_bytes(path)
     return size
 end
 
-local function run_shell_capture_lines(cmd, label, max_lines)
-    logger.dbg("ZenUpdater: shell capture start", label or "", cmd)
-    local pipe = io.popen(cmd)
-    if not pipe then
-        logger.warn("ZenUpdater: shell capture popen failed label=", label or "")
-        return false, {}
-    end
-
-    local limit = tonumber(max_lines) or 20
-    local total_lines = 0
-    local lines = {}
-    for raw in pipe:lines() do
-        local line = (raw or ""):gsub("\r", "")
-        if line ~= "" then
-            total_lines = total_lines + 1
-            if #lines < limit then
-                lines[#lines + 1] = line
-            end
-        end
-    end
-
-    local close_ok, rc, how, code = pcall(pipe.close, pipe)
-    if not close_ok then
-        logger.warn("ZenUpdater: shell capture close failed label=", label or "")
-        return false, lines
-    end
-
-    local ok = shell_result_ok(rc, how, code)
-    logger.dbg(
-        "ZenUpdater: shell capture done",
-        label or "",
-        "ok=",
-        tostring(ok),
-        "rc=",
-        tostring(rc),
-        "how=",
-        tostring(how),
-        "code=",
-        tostring(code),
-        "line_count=",
-        total_lines,
-        "stored_lines=",
-        #lines
-    )
-    return ok, lines
-end
-
-local function collect_zip_entries_with_command(cmd, label)
-    logger.dbg("ZenUpdater: zip list start", label, cmd)
-    local pipe = io.popen(cmd)
-    if not pipe then
-        logger.warn("ZenUpdater: zip list popen failed method=", label)
+local function collect_zip_entries(zip_path)
+    local reader = Archiver.Reader:new()
+    if not reader:open(zip_path) then
+        logger.warn("ZenUpdater: archive open failed:", tostring(reader.err))
         return nil
     end
 
     local entries = {}
-    for line in pipe:lines() do
-        local entry = (line or ""):gsub("\r", "")
-        if entry ~= "" then
-            entries[#entries + 1] = entry
-        end
+    for entry in reader:iterate() do
+        entries[#entries + 1] = entry.path
     end
+    local read_error = reader.err
+    reader:close()
 
-    local close_ok, rc, how, code = pcall(pipe.close, pipe)
-    if not close_ok then
-        logger.warn("ZenUpdater: zip list close failed method=", label)
-        return nil
-    end
-    local ok = shell_result_ok(rc, how, code)
-
-    logger.dbg(
-        "ZenUpdater: zip list done method=",
-        label,
-        "entry_count=",
-        #entries,
-        "ok=",
-        tostring(ok),
-        "rc=",
-        tostring(rc),
-        "how=",
-        tostring(how),
-        "code=",
-        tostring(code)
-    )
-    if not ok then
-        logger.warn("ZenUpdater: zip list command returned non-zero method=", label)
+    if read_error then
+        logger.warn("ZenUpdater: archive listing failed:", tostring(read_error))
         return nil
     end
     if #entries == 0 then
+        logger.warn("ZenUpdater: archive contains no entries")
         return nil
     end
+
+    logger.dbg("ZenUpdater: zip list parsed method=ffi_archiver entry_count=", #entries)
     return entries
-end
-
-local function collect_zip_entries(zip_path)
-    local listed = collect_zip_entries_with_command(
-        string.format("unzip -l %q 2>/dev/null", zip_path),
-        "unzip_list"
-    )
-    if not listed then
-        return nil
-    end
-
-    local parsed = {}
-    for _i, line in ipairs(listed) do
-        local name = line:match("^%s*%d+%s+[%d%-%/]+%s+[%d:]+%s+(.+)%s*$")
-        if name and name ~= "Name" then
-            parsed[#parsed + 1] = name
-        end
-    end
-
-    logger.dbg("ZenUpdater: zip list parsed method=unzip_list entry_count=", #parsed)
-    if #parsed == 0 then
-        return nil
-    end
-    return parsed
 end
 
 local function check_zip_integrity(zip_path)
@@ -1071,40 +1037,24 @@ local function check_zip_integrity(zip_path)
         tostring(get_file_size_bytes(zip_path))
     )
 
-    if run_shell_ok(string.format("unzip -t %q >/dev/null 2>&1", zip_path), "zip_integrity") then
-        logger.dbg("ZenUpdater: zip integrity unzip -t passed")
-        return true
-    end
-
-    local test_lines = select(2, run_shell_capture_lines(
-        string.format("unzip -t %q 2>&1", zip_path),
-        "zip_integrity_fail_output",
-        16
-    ))
-    if #test_lines > 0 then
-        logger.warn("ZenUpdater: unzip -t output:\n" .. table.concat(test_lines, "\n"))
-    else
-        logger.warn("ZenUpdater: unzip -t produced no diagnostic output")
-    end
-
-    logger.warn("ZenUpdater: unzip -t failed, falling back to zip listing validation")
     local entries = collect_zip_entries(zip_path)
-    if entries and #entries > 0 then
-        local sample = {}
-        for _i, entry in ipairs(entries) do
-            if #sample >= 8 then break end
-            sample[#sample + 1] = entry
-        end
-        logger.dbg(
-            "ZenUpdater: zip integrity fallback accepted entry_count=",
-            #entries,
-            "sample=",
-            table.concat(sample, " | ")
-        )
+    if entries then
+        logger.dbg("ZenUpdater: zip integrity ffi/archiver passed")
         return true
     end
+    logger.warn("ZenUpdater: zip integrity ffi/archiver failed")
+    return false
+end
 
-    logger.warn("ZenUpdater: zip integrity fallback failed to parse entries")
+local function is_unsafe_zip_entry(entry)
+    if entry == "" or entry:sub(1, 1) == "/" or entry:sub(1, 1) == "\\" then
+        return true
+    end
+    for component in entry:gmatch("[^/\\]+") do
+        if component == ".." then
+            return true
+        end
+    end
     return false
 end
 
@@ -1124,7 +1074,7 @@ local function validate_zip_layout(zip_path, plugin_name)
         if #sample_entries < 8 then
             sample_entries[#sample_entries + 1] = entry
         end
-        if entry:sub(1, 1) == "/" or entry:find("%.%./", 1, true) or entry:find("/%.%.", 1, true) then
+        if is_unsafe_zip_entry(entry) then
             logger.warn("ZenUpdater: validate_zip_layout unsafe entry:", entry)
             return false, "unsafe zip entry path"
         end
@@ -1155,6 +1105,37 @@ local function validate_zip_layout(zip_path, plugin_name)
         "sample=",
         table.concat(sample_entries, " | ")
     )
+    return true
+end
+
+local function extract_zip_with_archiver(zip_path, destination)
+    local reader = Archiver.Reader:new()
+    if not reader:open(zip_path) then
+        return false, reader.err or "archive open failed"
+    end
+
+    local extracted = 0
+    for entry in reader:iterate() do
+        if entry.mode ~= "file" and entry.mode ~= "directory" then
+            reader:close()
+            return false, "unsupported archive entry type: " .. tostring(entry.mode)
+        end
+        if not reader:extractToPath(entry.path, destination .. "/" .. entry.path) then
+            local extract_error = reader.err or ("failed to extract " .. entry.path)
+            reader:close()
+            return false, extract_error
+        end
+        extracted = extracted + 1
+    end
+
+    local read_error = reader.err
+    reader:close()
+    if read_error then
+        return false, read_error
+    end
+    if extracted == 0 then
+        return false, "archive contains no entries"
+    end
     return true
 end
 
@@ -1301,10 +1282,10 @@ local function _do_install(screen, plugin_root, plugins_dir)
         end
         UIManager:scheduleIn(INSTALL_TIMEOUT, timeout_cb)
 
-        local completed, ok, err = Trapper:dismissableRunInSubprocess(function()
+        local completed, ok, err = dismissable_or_in_process(Trapper, function()
             return https_download(M._dl_url, zip_path, M._latest_sha256)
         end, screen)
-        logger.dbg("ZenUpdater: download subprocess result completed=", tostring(completed), "ok=", tostring(ok), "err=", tostring(err))
+        logger.dbg("ZenUpdater: download task result completed=", tostring(completed), "ok=", tostring(ok), "err=", tostring(err))
 
         UIManager:unschedule(timeout_cb)
         screen._on_button_action = nil  -- prevent stale cancel action on subsequent button states
@@ -1388,17 +1369,9 @@ local function _do_install(screen, plugin_root, plugins_dir)
             return
         end
 
-        if not run_shell_ok(string.format("unzip -q %q -d %q", zip_path, stage_parent), "unzip_to_stage") then
-            local unpack_lines = select(2, run_shell_capture_lines(
-                string.format("unzip %q -d %q 2>&1", zip_path, stage_parent),
-                "unzip_to_stage_fail_output",
-                20
-            ))
-            if #unpack_lines > 0 then
-                logger.warn("ZenUpdater: unzip_to_stage output:\n" .. table.concat(unpack_lines, "\n"))
-            else
-                logger.warn("ZenUpdater: unzip_to_stage produced no diagnostic output")
-            end
+        local unpack_ok, unpack_reason = extract_zip_with_archiver(zip_path, stage_parent)
+        if not unpack_ok then
+            logger.warn("ZenUpdater: ffi/archiver extraction failed:", tostring(unpack_reason))
             safe_remove_tree(stage_parent)
             os.remove(zip_path)
             fail_with(_("Update failed: could not unpack update package."))
@@ -1472,7 +1445,11 @@ local function _do_install(screen, plugin_root, plugins_dir)
         screen:update{ subtitle = _("Rebooting") .. "...", button = false }
         UIManager:forceRePaint()
         UIManager:scheduleIn(1, function()
-            UIManager:broadcastEvent(require("ui/event"):new("Restart"))
+            if type(UIManager.restartKOReader) == "function" then
+                UIManager:restartKOReader()
+            else
+                UIManager:broadcastEvent(require("ui/event"):new("Restart"))
+            end
         end)
     end)
 end

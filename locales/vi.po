@@ -1971,6 +1971,9 @@ msgstr "Gạch chân trên biểu tượng"
 msgid "Uniform covers"
 msgstr "Bao bì đồng nhất"
 
+msgid "Unavailable"
+msgstr "Không khả dụng"
+
 msgid "Unknown"
 msgstr "Không rõ"
 

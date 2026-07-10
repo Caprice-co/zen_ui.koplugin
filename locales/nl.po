@@ -1977,6 +1977,9 @@ msgstr "Onderstreping boven pictogram"
 msgid "Uniform covers"
 msgstr "Uniforme omslagen"
 
+msgid "Unavailable"
+msgstr "Niet beschikbaar"
+
 msgid "Unknown"
 msgstr "Onbekend"
 

@@ -155,5 +155,25 @@ return {
         "Status bar API for 3rd party plugins",
         "Bug fixes",
     },
+    ["2.4.0"] = {
+        "Even better Rakuyomi integration (Extras > Rakuyomi)",
+        "Add row break in Launcher",
+        "Add unified push/pull sync button to Actions",
+        "Add Incognito mode to Controls/Actions",
+        "Add AI Assistant icon in lookup/highlight",
+        "Add Zen TOC action for gestures/launcher",
+        "Add option to center books in Home strip widgets",
+        "Add home API for plugin developers",
+        "Update status bar API to allow images",
+        "Update Zen Updater plumbing",
+        "Update Zen Bug Reporter to send Android crash logs",
+        "Update dim automatic folder covers when all books read (and dim enabled)",
+        "Moved Navbar settings to Library > Navbar",
+        "Moved Advanced settings to About > Advanced",
+        "Moved Global settings to Extras",
+        "Ignore English articles in title sort",
+        "Persist library rotation state",
+        "Bug fixes"
+    },
 
 }

@@ -1,4 +1,5 @@
 local M = {}
+local Rakuyomi = require("common/rakuyomi")
 local initialized = false
 
 local FEATURES = {
@@ -221,7 +222,7 @@ function M.init(logger, plugin)
         _G.__ZEN_UI_RUNTIME_PATCHES = runtime_patches
     end
 
-    local rakuyomi_fn = load_patch("rakuyomi")
+    local rakuyomi_fn = Rakuyomi.is_available() and load_patch("rakuyomi") or nil
     if rakuyomi_fn then
         local ok = run_feature(logger, plugin, "rakuyomi", rakuyomi_fn)
         if ok then

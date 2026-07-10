@@ -1977,6 +1977,9 @@ msgstr "Podtržení nad ikonou"
 msgid "Uniform covers"
 msgstr "Jednotné obálky"
 
+msgid "Unavailable"
+msgstr "Nedostupné"
+
 msgid "Unknown"
 msgstr "Neznámý"
 

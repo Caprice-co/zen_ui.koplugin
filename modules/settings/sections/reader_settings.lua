@@ -5,6 +5,7 @@
 local _ = require("gettext")
 local UIManager = require("ui/uimanager")
 local Event = require("ui/event")
+local dispatch_action = require("common/dispatch_action")
 local utils = require("modules/settings/zen_settings_utils")
 local constants = require("common/constants")
 local PresetStore = require("config/preset_store")
@@ -18,6 +19,14 @@ function M.build(ctx)
 
     local function make_enable_feature_item(feature, text)
         return utils.make_enable_feature_item(feature, text, config, save_and_apply)
+    end
+
+    -- Returns true if a plugin slot is loaded in the active UI; fails open if no UI yet.
+    local function hasPlugin(slot)
+        local ok_f, FM = pcall(require, "apps/filemanager/filemanager")
+        local ok_r, RU = pcall(require, "apps/reader/readerui")
+        local ui = (ok_f and FM.instance) or (ok_r and RU.instance)
+        return ui == nil or ui[slot] ~= nil
     end
 
     local items = {}
@@ -598,6 +607,23 @@ function M.build(ctx)
                 end,
             },
             {
+                text = _("Show AI assistant"),
+                help_text = _("Show a button for the Assistant plugin, if installed."),
+                show_func = function() return hasPlugin("assistant") end,
+                checked_func = function()
+                    return type(config.highlight_lookup) == "table"
+                        and config.highlight_lookup.show_ai_assistant == true
+                end,
+                callback = function()
+                    if type(config.highlight_lookup) ~= "table" then
+                        config.highlight_lookup = {}
+                    end
+                    config.highlight_lookup.show_ai_assistant =
+                        config.highlight_lookup.show_ai_assistant ~= true
+                    plugin:saveConfig()
+                end,
+            },
+            {
                 text = _("Show other items"),
                 help_text = _("Show other KOReader quick lookup options alongside Zen buttons."),
                 checked_func = function()
@@ -784,6 +810,17 @@ function M.build(ctx)
             local mock = {}
             ui.view.footer:addToMainMenu(mock)
             local result = {}
+            table.insert(result, {
+                text = _("Enable bottom status bar"),
+                checked_func = function()
+                    return dispatch_action.isBottomStatusBarVisible()
+                end,
+                callback = function(touchmenu_instance)
+                    dispatch_action.setBottomStatusBar(plugin,
+                        not dispatch_action.isBottomStatusBarVisible())
+                    if touchmenu_instance then touchmenu_instance:updateItems() end
+                end,
+            })
             table.insert(result, build_footer_presets_item())
             table.insert(result, font_submenu)
             table.insert(result, {

@@ -1977,6 +1977,9 @@ msgstr "Sottolineatura sopra l'icona"
 msgid "Uniform covers"
 msgstr "Copertine uniformi"
 
+msgid "Unavailable"
+msgstr "Non disponibile"
+
 msgid "Unknown"
 msgstr "Sconosciuto"
 

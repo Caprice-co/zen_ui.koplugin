@@ -1977,6 +1977,9 @@ msgstr "Подчёркивание над значком"
 msgid "Uniform covers"
 msgstr "Единый вид обложек"
 
+msgid "Unavailable"
+msgstr "Недоступно"
+
 msgid "Unknown"
 msgstr "Неизвестно"
 

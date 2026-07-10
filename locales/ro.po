@@ -1977,6 +1977,9 @@ msgstr "Subliniere deasupra pictogramei"
 msgid "Uniform covers"
 msgstr "Coperte uniforme"
 
+msgid "Unavailable"
+msgstr "Indisponibil"
+
 msgid "Unknown"
 msgstr "Necunoscut"
 

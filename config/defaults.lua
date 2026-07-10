@@ -18,6 +18,10 @@ local defaults = {
         update_channel = "stable",
         update_auto_check = true,
     },
+    rakuyomi = {
+        return_to_chapter_list_on_exit = false,
+        reverse_page_scrolling = false,
+    },
     localization = {
         default_locale = "en",
         locales = {
@@ -63,6 +67,7 @@ local defaults = {
         dict_quick_lookup    = true,
         custom_icons_enabled = false,
         lockdown_mode        = false,
+        incognito_mode       = false,
         zen_opds             = true,
     },
     navbar = {
@@ -102,7 +107,7 @@ local defaults = {
         show_top_border = false,
     },
     quick_settings = {
-        button_order = { "wifi", "night", "frontlight", "gyro", "rotate", "zen", "lockdown", "usb", "search", "quickrss", "cloud", "zlibrary", "calibre", "notion", "streak", "opds", "filebrowser", "restart", "exit", "sleep" },
+        button_order = { "wifi", "night", "frontlight", "gyro", "rotate", "zen", "lockdown", "incognito", "usb", "search", "quickrss", "cloud", "zlibrary", "calibre", "notion", "streak", "opds", "filebrowser", "restart", "exit", "sleep" },
         show_buttons = {
             wifi = true,
             night = true,
@@ -111,6 +116,7 @@ local defaults = {
             rotate = true,
             zen = true,
             lockdown = false,
+            incognito = false,
             usb = false,
             search = false,
             quickrss = false,
@@ -218,6 +224,7 @@ local defaults = {
     highlight_lookup = {
         allow_unknown_items = false,
         show_wikipedia      = false,
+        show_ai_assistant   = false,
     },
     dict_quick_lookup = {},
 

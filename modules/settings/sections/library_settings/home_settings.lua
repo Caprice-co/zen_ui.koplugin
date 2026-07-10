@@ -39,22 +39,6 @@ local FEATURED_TEXT_STYLE_DEFAULTS = {
     description = { font_face = "default", font_size = 16, bold = false },
 }
 
-local function copy_default_order()
-    local out = {}
-    for _i, id in ipairs(DEFAULT_ORDER) do
-        out[#out + 1] = id
-    end
-    return out
-end
-
-local function copy_default_enabled()
-    local out = {}
-    for key, value in pairs(DEFAULT_ENABLED) do
-        out[key] = value
-    end
-    return out
-end
-
 local function normalize_order(order)
     if order == "reverse" then return "reverse" end
     return "default"
@@ -152,6 +136,7 @@ local function ensure_strip_cfg(dcfg, module_id)
     end
     if mcfg.show_strip_titles == nil then mcfg.show_strip_titles = false end
     if mcfg.show_badges == nil then mcfg.show_badges = false end
+    if mcfg.center_books == nil then mcfg.center_books = false end
     return mcfg
 end
 
@@ -177,42 +162,7 @@ local function ensure_cfg(_config)
     end
     HomePresets.ensurePresetState(dcfg)
 
-    if type(dcfg.rows) ~= "table" then dcfg.rows = {} end
-    if type(dcfg.rows.order) ~= "table" then dcfg.rows.order = {} end
-    local normalized_order = {}
-    local seen_order = {}
-    for _i, id in ipairs(dcfg.rows.order) do
-        if Registry.get(id) and not seen_order[id] then
-            seen_order[id] = true
-            table.insert(normalized_order, id)
-        end
-    end
-    if #normalized_order == 0 then
-        dcfg.rows.order = copy_default_order()
-    else
-        dcfg.rows.order = normalized_order
-    end
-    if type(dcfg.rows.enabled) ~= "table" then dcfg.rows.enabled = {} end
-    local normalized_enabled = {}
-    local had_enabled = false
-    for key, val in pairs(dcfg.rows.enabled) do
-        if Registry.get(key) and val == true then
-            normalized_enabled[key] = true
-            had_enabled = true
-        elseif Registry.get(key) and normalized_enabled[key] == nil then
-            normalized_enabled[key] = false
-        end
-    end
-    if not had_enabled then
-        normalized_enabled = copy_default_enabled()
-    end
-    for _i, comp in ipairs(Registry.list()) do
-        if normalized_enabled[comp.id] == nil then
-            normalized_enabled[comp.id] = false
-        end
-    end
-    dcfg.rows.enabled = normalized_enabled
-    dcfg.rows.max_rows = 5
+    dcfg.rows = Registry.normalizeRows(dcfg.rows, DEFAULT_ORDER, DEFAULT_ENABLED)
 
     if dcfg.show_status_bar == nil then dcfg.show_status_bar = true end
 
@@ -251,45 +201,8 @@ local function enabled_count(enabled)
     return n
 end
 
-local function list_ids()
-    local ids = {}
-    for _i, comp in ipairs(Registry.list()) do
-        table.insert(ids, comp.id)
-    end
-    return ids
-end
-
 local home_max_widgets = 5
 local custom_strip_max_books = 50
-
-local function sort_order_with_defaults(order)
-    local ids = list_ids()
-    local seen = {}
-    local out = {}
-
-    for _i, id in ipairs(order) do
-        if Registry.get(id) and not seen[id] then
-            seen[id] = true
-            table.insert(out, id)
-        end
-    end
-
-    for _i, id in ipairs(DEFAULT_ORDER) do
-        if not seen[id] then
-            table.insert(out, id)
-            seen[id] = true
-        end
-    end
-
-    for _i, id in ipairs(ids) do
-        if Registry.get(id) and not seen[id] then
-            table.insert(out, id)
-            seen[id] = true
-        end
-    end
-
-    return out
-end
 
 function M.build(ctx)
     local config = ctx.config
@@ -388,7 +301,7 @@ function M.build(ctx)
     local function component_label(id)
         local comp = Registry.get(id)
         if comp and comp.label then return comp.label end
-        return id
+        return tostring(id) .. " (" .. _("Unavailable") .. ")"
     end
 
     local order_options = {
@@ -779,6 +692,12 @@ function M.build(ctx)
 
     local function build_strip_custom_items(mcfg)
         if type(mcfg.paths) ~= "table" then mcfg.paths = {} end
+        local function refresh_custom_strip_menu(touchmenu_instance)
+            if touchmenu_instance then
+                touchmenu_instance.item_table = build_strip_custom_items(mcfg)
+                touchmenu_instance:updateItems()
+            end
+        end
         local items = {
             {
                 text = _("Show widget title"),
@@ -807,6 +726,16 @@ function M.build(ctx)
                 end,
                 callback = function()
                     mcfg.show_badges = mcfg.show_badges ~= true
+                    save_home("reinit")
+                end,
+            },
+            {
+                text = _("Center books"),
+                checked_func = function()
+                    return mcfg.center_books == true
+                end,
+                callback = function()
+                    mcfg.center_books = mcfg.center_books ~= true
                     save_home("reinit")
                 end,
             },
@@ -859,10 +788,7 @@ function M.build(ctx)
                         end
                         mcfg.paths[#mcfg.paths + 1] = path
                         save_home("reinit")
-                        if touchmenu_instance then
-                            touchmenu_instance.item_table = build_strip_custom_items(mcfg)
-                            touchmenu_instance:updateItems()
-                        end
+                        refresh_custom_strip_menu(touchmenu_instance)
                     end)
                 end,
             },
@@ -871,9 +797,10 @@ function M.build(ctx)
         for i, path in ipairs(mcfg.paths) do
             items[#items + 1] = {
                 text = _("Remove: ") .. path_label(path),
-                callback = function()
+                callback = function(touchmenu_instance)
                     table.remove(mcfg.paths, i)
                     save_home("reinit")
+                    refresh_custom_strip_menu(touchmenu_instance)
                 end,
             }
         end
@@ -883,9 +810,10 @@ function M.build(ctx)
             enabled_func = function()
                 return #mcfg.paths > 0
             end,
-            callback = function()
+            callback = function(touchmenu_instance)
                 mcfg.paths = {}
                 save_home("reinit")
+                refresh_custom_strip_menu(touchmenu_instance)
             end,
         }
         return items
@@ -971,6 +899,16 @@ function M.build(ctx)
                     save_home("reinit")
                 end,
             },
+            {
+                text = _("Center books"),
+                checked_func = function()
+                    return mcfg.center_books == true
+                end,
+                callback = function()
+                    mcfg.center_books = mcfg.center_books ~= true
+                    save_home("reinit")
+                end,
+            },
             interactive_item(mcfg),
             {
                 text = _("Two rows"),
@@ -1022,9 +960,12 @@ function M.build(ctx)
 
     local function toggle_widget_enabled(cid)
         if dcfg.rows.enabled[cid] == true then
-            if enabled_count(dcfg.rows.enabled) <= 1 then return false end
+            if enabled_count(dcfg.rows.enabled) <= 1 and Registry.get(cid) then
+                return false
+            end
             dcfg.rows.enabled[cid] = false
         else
+            if not Registry.get(cid) then return false end
             if enabled_count(dcfg.rows.enabled) >= home_max_widgets then
                 local InfoMessage = require("ui/widget/infomessage")
                 UIManager:show(InfoMessage:new{
@@ -1053,9 +994,11 @@ function M.build(ctx)
 
     local function arrange_widgets()
         local ZenArrangeList = require("common/ui/zen_arrange_list")
-        local order = sort_order_with_defaults(dcfg.rows.order)
+        dcfg.rows = Registry.normalizeRows(dcfg.rows, DEFAULT_ORDER, DEFAULT_ENABLED)
+        local order = dcfg.rows.order
         local sort_items = {}
         local function should_dim_widget(id)
+            if not Registry.get(id) then return true end
             return dcfg.rows.enabled[id] ~= true
                 and enabled_count(dcfg.rows.enabled) >= home_max_widgets
         end

@@ -82,6 +82,18 @@ local function apply_browser_cover_badges()
         end
     end
 
+    local function get_effective_item_status(item)
+        local entry = item and item.entry
+        if entry and entry._zen_effective_status then return entry._zen_effective_status end
+        if item and item._zen_effective_status then return item._zen_effective_status end
+
+        local status = item and item.status
+        local percent_finished = item and item.percent_finished
+        if status == nil and entry then status = entry.status end
+        if percent_finished == nil and entry then percent_finished = entry.percent_finished end
+        return book_status.getEffectiveStatus(status, percent_finished)
+    end
+
 
     local function patchMosaicMenu()
         local MosaicMenu     = require("mosaicmenu")
@@ -95,7 +107,13 @@ local function apply_browser_cover_badges()
         if orig_update then
             function MosaicMenuItem:update(...)
                 orig_update(self, ...)
-                if self.is_go_up or (not self.filepath) then return end
+                if self.is_go_up then return end
+                if not self.filepath then
+                    if self.entry and self.entry._zen_effective_status then
+                        self._zen_effective_status = self.entry._zen_effective_status
+                    end
+                    return
+                end
                 self._zen_effective_status = book_status.getComputedStatus(
                     self.filepath, self.status, self.percent_finished
                 )
@@ -227,6 +245,25 @@ local function apply_browser_cover_badges()
                 self.shortcut_icon:paintTo(bb, x + ix, y)
             end
 
+            -- Dim finished series/folder covers. Folders have no cover frame, so
+            -- they can't ride the book dimming path below (which runs after the
+            -- target guard and keys off _cover_frame). Use the tracked cover rect
+            -- (_zen_cover_dimen/_zen_cover_top) -- the same source the folder count
+            -- badge uses -- so the lighten lands exactly on the drawn cover.
+            do
+                local cd = rawget(self, "_zen_cover_dimen")
+                if _is_fm and cd and cd.w and cd.w > 0
+                        and _plugin and _plugin.config
+                        and type(_plugin.config.browser_cover_badges) == "table"
+                        and _plugin.config.browser_cover_badges.dim_finished_books == true
+                        and get_effective_item_status(self) == "complete" then
+                    local fx = x + math.floor((self.width - cd.w) / 2)
+                    local fy = y + (rawget(self, "_zen_cover_top")
+                        or math.floor((self.height - cd.h) / 2))
+                    bb:lightenRect(fx, fy, cd.w, cd.h, 0.4)
+                end
+            end
+
             -- Resolve inner cover-frame sub-widget and current mark size
             -- Resolve inner cover-frame sub-widget
             local target = pre_target or (self[1] and self[1][1] and self[1][1][1])
@@ -262,8 +299,7 @@ local function apply_browser_cover_badges()
                 and _plugin.config.browser_cover_badges.badge_color
             local badge_is_dark = _bc == nil or (type(_bc) == "table" and _bc[1] == 0 and _bc[2] == 0 and _bc[3] == 0)
             local badge_fg = badge_is_dark and Blitbuffer.COLOR_WHITE or Blitbuffer.COLOR_BLACK
-            local effective_status = self._zen_effective_status
-                or book_status.getEffectiveStatus(self.status, self.percent_finished)
+            local effective_status = get_effective_item_status(self)
             local is_new = effective_status == "new"
 
             local cover_left = x + math.floor((self.width - target.dimen.w) / 2)
@@ -529,8 +565,7 @@ local function apply_browser_cover_badges()
                 and type(_plugin.config.browser_cover_badges) == "table"
                 and _plugin.config.browser_cover_badges.dim_finished_books == true
             if dim_finished
-                    and (self._zen_effective_status
-                        or book_status.getEffectiveStatus(self.status, self.percent_finished)) == "complete"
+                    and get_effective_item_status(self) == "complete"
                     and self.width and self.height then
                 bb:lightenRect(x, y, self.width, self.height, 0.3)
             end

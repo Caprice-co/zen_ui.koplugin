@@ -36,6 +36,15 @@ function M.build(ctx)
         return _ui == nil or _ui[slot] ~= nil
     end
 
+    local function hasAnyPlugin(slots)
+        for _i, slot in ipairs(slots) do
+            if hasPlugin(slot) then return true end
+        end
+        return false
+    end
+
+    local filebrowser_slots = { "filebrowser", "FilebrowserPlus", "filebrowserplus" }
+
     local quick_button_items = {
         { key = "wifi",    text = _("Wi-Fi")       },
         { key = "night",   text = _("Night mode")  },
@@ -43,6 +52,7 @@ function M.build(ctx)
         { key = "gyro", text = _("Gyroscope"), detect = function() return Device:hasGSensor() end },
         { key = "zen",     text = _("Zen mode")    },
         { key = "lockdown",text = _("Lockdown")    },
+        { key = "incognito", text = _("Incognito")  },
         { key = "rotate",  text = _("Rotate")      },
         { key = "usb",     text = _("USB")         },
         { key = "search",  text = _("File search") },
@@ -59,7 +69,7 @@ function M.build(ctx)
         { key = "streak",         text = _("Streak"),          detect = function() return hasPlugin("readingstreak") end },
         { key = "opds",           text = _("OPDS"),            detect = function() return hasPlugin("opds") end },
         { key = "localsend",      text = _("LocalSend"),       detect = function() return hasPlugin("localsend") end },
-        { key = "filebrowser",    text = _("Filebrowser"),     detect = function() return hasPlugin("filebrowser") end },
+        { key = "filebrowser",    text = _("Filebrowser"),     detect = function() return hasAnyPlugin(filebrowser_slots) end },
         { key = "puzzle",         text = _("Slide Puzzle"),    detect = function() return hasPlugin("slidepuzzle") end },
         { key = "crossword",      text = _("Crossword"),       detect = function() return hasPlugin("crossword") end },
         { key = "connections",    text = _("Connections"),      detect = function() return hasPlugin("nytconnections") end },

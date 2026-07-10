@@ -1,4 +1,4 @@
-local function apply_app_launcher()
+        local function apply_app_launcher()
     local Blitbuffer = require("ffi/blitbuffer")
     local CenterContainer = require("ui/widget/container/centercontainer")
     local Device = require("device")
@@ -371,6 +371,35 @@ local function apply_app_launcher()
             end
         end
 
+        -- Group visible entries into rows, honoring row-break marker entries
+        -- as well as the column count. A break entry doesn't render a cell
+        -- itself -- it just forces the next entry to start a new row.
+        local all_rows = {}
+        do
+            local current_row
+            local force_break = false
+            for _i, entry in ipairs(visible) do
+                if entry.type == "break" then
+                    force_break = true
+                else
+                    if not current_row or #current_row >= cols or force_break then
+                        current_row = {}
+                        all_rows[#all_rows + 1] = current_row
+                    end
+                    current_row[#current_row + 1] = entry
+                    force_break = false
+                end
+            end
+        end
+
+        -- Size every cell off the longest row (across all pages) so a short,
+        -- forced-break row doesn't stretch its icons wider than a full row.
+        local max_row_len = 0
+        for _i, row in ipairs(all_rows) do
+            if #row > max_row_len then max_row_len = #row end
+        end
+        local uniform_cell_w = math.floor(inner_w / math.max(1, max_row_len))
+
         -- Pagination: slice the grid so it never overflows the space a normal
         -- menu would use (bar + items area + footer). The footer up arrow then
         -- always stays on screen, matching KOReader's stock menu height.
@@ -384,8 +413,7 @@ local function apply_app_launcher()
         local footer_margin_h = (touch_menu.footer_top_margin and touch_menu.footer_top_margin:getSize().h) or 0
         local items_height = menu_height - bar_h - footer_h - footer_margin_h - pad * 2
         local rows_per_page = math.max(1, math.floor(items_height / cell_total_h) - 1)
-        local per_page = rows_per_page * cols
-        local page_num = math.max(1, math.ceil(#visible / per_page))
+        local page_num = math.max(1, math.ceil(#all_rows / rows_per_page))
         local page = touch_menu._app_launcher_page or 1
         if page > page_num then page = page_num end
         if page < 1 then page = 1 end
@@ -393,12 +421,12 @@ local function apply_app_launcher()
         refs.page = page
         refs.page_num = page_num
 
-        local page_items = {}
-        if #visible > 0 then
-            local start_idx = (page - 1) * per_page + 1
-            local end_idx = math.min(start_idx + per_page - 1, #visible)
+        local page_rows = {}
+        if #all_rows > 0 then
+            local start_idx = (page - 1) * rows_per_page + 1
+            local end_idx = math.min(start_idx + rows_per_page - 1, #all_rows)
             for i = start_idx, end_idx do
-                page_items[#page_items + 1] = visible[i]
+                page_rows[#page_rows + 1] = all_rows[i]
             end
         end
 
@@ -445,48 +473,45 @@ local function apply_app_launcher()
             VerticalSpan:new{ width = pad },
         }
 
-        for i, entry in ipairs(page_items) do
-            local col = ((i - 1) % cols) + 1
-            if col == 1 then
-                rows[#rows + 1] = HorizontalGroup:new{ align = "top" }
-                row_counts[#rows] = 0
-                local remaining = #page_items - i + 1
-                local row_count = math.min(cols, remaining)
-                row_widths[#rows] = math.floor(inner_w / row_count)
-                layout_rows[#layout_rows + 1] = {}
+        for _i, row_entries in ipairs(page_rows) do
+            rows[#rows + 1] = HorizontalGroup:new{ align = "top" }
+            row_counts[#rows] = 0
+            row_widths[#rows] = uniform_cell_w
+            layout_rows[#layout_rows + 1] = {}
+            for _j, entry in ipairs(row_entries) do
+                row_counts[#rows] = row_counts[#rows] + 1
+                local dim = not entry._app_back and not entry_available(entry, touch_menu, cfg)
+                local cell = make_cell{
+                    cell_w = row_widths[#rows] or cell_w,
+                    cell_h = cell_h,
+                    pad = pad,
+                    icon_size = icon_size,
+                    circle_size = circle_size,
+                    circle_border = circle_border,
+                    label_face = label_face,
+                    label = Model.display_label(entry),
+                    show_label = show_labels,
+                    icon = entry.icon or (entry.type == "folder" and DEFAULT_FOLDER_ICON or DEFAULT_ENTRY_ICON),
+                    dim = dim,
+                    callback = not dim and function()
+                        activate_entry(touch_menu, entry)
+                    end or nil,
+                }
+                rows[#rows][#rows[#rows] + 1] = cell
+                layout_rows[#layout_rows][#layout_rows[#layout_rows] + 1] = cell
+                refs.buttons[#refs.buttons + 1] = {
+                    widget = cell,
+                    callback = cell.callback and function()
+                        cell.callback()
+                    end or nil,
+                }
             end
-            row_counts[#rows] = row_counts[#rows] + 1
-            local dim = not entry._app_back and not entry_available(entry, touch_menu, cfg)
-            local cell = make_cell{
-                cell_w = row_widths[#rows] or cell_w,
-                cell_h = cell_h,
-                pad = pad,
-                icon_size = icon_size,
-                circle_size = circle_size,
-                circle_border = circle_border,
-                label_face = label_face,
-                label = Model.display_label(entry),
-                show_label = show_labels,
-                icon = entry.icon or (entry.type == "folder" and DEFAULT_FOLDER_ICON or DEFAULT_ENTRY_ICON),
-                dim = dim,
-                callback = not dim and function()
-                    activate_entry(touch_menu, entry)
-                end or nil,
-            }
-            rows[#rows][#rows[#rows] + 1] = cell
-            layout_rows[#layout_rows][#layout_rows[#layout_rows] + 1] = cell
-            refs.buttons[#refs.buttons + 1] = {
-                widget = cell,
-                callback = cell.callback and function()
-                    cell.callback()
-                end or nil,
-            }
         end
 
         for _i, row in ipairs(rows) do
             local used = (row_counts[_i] or 0) * (row_widths[_i] or cell_w)
-            local lead = pad
-            local trail = panel_width - pad - used
+            local lead = math.max(pad, math.floor((panel_width - used) / 2))
+            local trail = panel_width - used - lead
             table.insert(row, 1, HorizontalSpan:new{ width = lead })
             row[#row + 1] = HorizontalSpan:new{ width = math.max(0, trail) }
             panel[#panel + 1] = row

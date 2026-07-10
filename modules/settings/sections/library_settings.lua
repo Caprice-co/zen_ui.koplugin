@@ -627,6 +627,8 @@ function M.build(ctx)
                     config.browser_cover_badges.dim_finished_books =
                         config.browser_cover_badges.dim_finished_books ~= true
                     plugin:saveConfig()
+                    local ui = require("apps/filemanager/filemanager").instance
+                    if ui and ui.file_chooser then ui.file_chooser:updateItems() end
                     UIManager:setDirty(nil, "full")
                 end,
             },
@@ -1021,57 +1023,59 @@ function M.build(ctx)
     -- Layout
     -- -------------------------------------------------------------------------
 
+    local layout_items = {
+        display_mode_item,
+        items_per_page_item,
+    }
+    table.insert(layout_items, {
+        text = _("Show all files from subfolders"),
+        checked_func = function()
+            return G_reader_settings:isTrue("show_flat_view")
+        end,
+        callback = function()
+            local v = not G_reader_settings:isTrue("show_flat_view")
+            G_reader_settings:saveSetting("show_flat_view", v)
+            settings_apply.prompt_restart()
+        end,
+    })
+    table.insert(layout_items, {
+        text = _("Show item underline"),
+        checked_func = function()
+            return config.features.browser_hide_underline ~= true
+        end,
+        callback = function()
+            config.features.browser_hide_underline = config.features.browser_hide_underline ~= true
+            save_and_apply("browser_hide_underline")
+        end,
+    })
+    table.insert(layout_items, {
+        text = _("Hide list borders"),
+        checked_func = function()
+            return type(config.browser_list_item_layout) == "table"
+                and config.browser_list_item_layout.hide_list_borders == true
+        end,
+        callback = function()
+            if type(config.browser_list_item_layout) ~= "table" then
+                config.browser_list_item_layout = {}
+            end
+            config.browser_list_item_layout.hide_list_borders =
+                config.browser_list_item_layout.hide_list_borders ~= true
+            plugin:saveConfig()
+            -- updateItems rebuilds item_group so stripListBorders takes effect immediately.
+            local ok_fm, FM = pcall(require, "apps/filemanager/filemanager")
+            local fm = ok_fm and FM and FM.instance
+            if fm and fm.file_chooser and fm.file_chooser.updateItems then
+                fm.file_chooser:updateItems()
+                UIManager:setDirty(fm, "ui")
+            else
+                UIManager:setDirty(nil, "full")
+            end
+        end,
+    })
+
     table.insert(items, 2, {
         text = _("Layout"),
-        sub_item_table = {
-            display_mode_item,
-            items_per_page_item,
-            {
-                text = _("Show all files from subfolders"),
-                checked_func = function()
-                    return G_reader_settings:isTrue("show_flat_view")
-                end,
-                callback = function()
-                    local v = not G_reader_settings:isTrue("show_flat_view")
-                    G_reader_settings:saveSetting("show_flat_view", v)
-                    settings_apply.prompt_restart()
-                end,
-            },
-            {
-                text = _("Show item underline"),
-                checked_func = function()
-                    return config.features.browser_hide_underline ~= true
-                end,
-                callback = function()
-                    config.features.browser_hide_underline = config.features.browser_hide_underline ~= true
-                    save_and_apply("browser_hide_underline")
-                end,
-            },
-            {
-                text = _("Hide list borders"),
-                checked_func = function()
-                    return type(config.browser_list_item_layout) == "table"
-                        and config.browser_list_item_layout.hide_list_borders == true
-                end,
-                callback = function()
-                    if type(config.browser_list_item_layout) ~= "table" then
-                        config.browser_list_item_layout = {}
-                    end
-                    config.browser_list_item_layout.hide_list_borders =
-                        config.browser_list_item_layout.hide_list_borders ~= true
-                    plugin:saveConfig()
-                    -- updateItems rebuilds item_group so stripListBorders takes effect immediately.
-                    local ok_fm, FM = pcall(require, "apps/filemanager/filemanager")
-                    local fm = ok_fm and FM and FM.instance
-                    if fm and fm.file_chooser and fm.file_chooser.updateItems then
-                        fm.file_chooser:updateItems()
-                        UIManager:setDirty(fm, "ui")
-                    else
-                        UIManager:setDirty(nil, "full")
-                    end
-                end,
-            },
-        },
+        sub_item_table = layout_items,
     })
 
     -- -------------------------------------------------------------------------

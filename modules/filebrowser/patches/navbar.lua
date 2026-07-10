@@ -25,6 +25,7 @@ local function apply_navbar()
     local Screen = Device.screen
     local _ = require("gettext")
     local lfs = require("libs/libkoreader-lfs")
+    local logger = require("logger")
 
     local function getRakuyomi()
         return rawget(_G, "__ZEN_UI_RAKUYOMI") or {}
@@ -53,6 +54,18 @@ local function apply_navbar()
     local function is_restore_enabled()
         local features = zen_plugin.config and zen_plugin.config.features
         return type(features) == "table" and features.restore_library_view == true
+    end
+
+    local function rakuyomi_return_to_chapter_list_on_exit_enabled()
+        local rakuyomi = zen_plugin.config and zen_plugin.config.rakuyomi
+        if type(rakuyomi) ~= "table" then return true end
+        if rakuyomi.return_to_chapter_list_on_exit ~= nil then
+            return rakuyomi.return_to_chapter_list_on_exit ~= false
+        end
+        if rakuyomi.return_to_chapter_list_on_reader_exit ~= nil then
+            return rakuyomi.return_to_chapter_list_on_reader_exit ~= false
+        end
+        return true
     end
 
     -- === Layout constants ===
@@ -476,7 +489,7 @@ local function apply_navbar()
 
         local Rakuyomi = getRakuyomi()
         if type(Rakuyomi.openLibraryView) == "function" then
-            Rakuyomi.openLibraryView({ hideTopClose = true })
+            Rakuyomi.openLibraryView({ hideTopClose = true, forceLibraryView = true })
         end
     end
 
@@ -531,7 +544,23 @@ local function apply_navbar()
             })
             return
         end
-        if is_restore_enabled() and not skip_tabs_for_state[active_tab] then
+        local Rakuyomi = getRakuyomi()
+        local resume_rakuyomi = type(Rakuyomi.isChapterFile) == "function"
+            and Rakuyomi.isChapterFile(last_file)
+        local rakuyomi_return_file = resume_rakuyomi
+            and rakuyomi_return_to_chapter_list_on_exit_enabled()
+            and last_file or nil
+        logger.dbg(
+            "zen-ui rakuyomi-return: Continue:",
+            "file=", last_file,
+            "detected=", tostring(resume_rakuyomi))
+        _G.__ZEN_UI_FORCE_SOURCE_TAB_RESTORE = nil
+        _G.__ZEN_UI_RAKUYOMI_RETURN_FILE = nil
+        if resume_rakuyomi then
+            _G.__ZEN_UI_LIBRARY_SOURCE_TAB = "manga"
+            _G.__ZEN_UI_FORCE_SOURCE_TAB_RESTORE = true
+            _G.__ZEN_UI_RAKUYOMI_RETURN_FILE = rakuyomi_return_file
+        elseif is_restore_enabled() and not skip_tabs_for_state[active_tab] then
             _G.__ZEN_UI_LIBRARY_SOURCE_TAB = active_tab
         else
             _G.__ZEN_UI_LIBRARY_SOURCE_TAB = nil
@@ -2221,8 +2250,20 @@ local function apply_navbar()
     function FileManager:onShowingReader()
         local gv = get_shared("group_view")
         local source_tab = rawget(_G, "__ZEN_UI_LIBRARY_SOURCE_TAB") or active_tab
+        local force_source_restore = rawget(_G, "__ZEN_UI_FORCE_SOURCE_TAB_RESTORE") == true
+        local rakuyomi_return_file = rawget(_G, "__ZEN_UI_RAKUYOMI_RETURN_FILE")
+        if force_source_restore or rakuyomi_return_file then
+            logger.dbg(
+                "zen-ui rakuyomi-return: onShowingReader capture:",
+                "source_tab=", tostring(source_tab),
+                "force=", tostring(force_source_restore),
+                "file=", tostring(rakuyomi_return_file))
+        end
         _G.__ZEN_UI_LIBRARY_SOURCE_TAB = nil
-        if is_restore_enabled() and not skip_tabs_for_state[source_tab] then
+        _G.__ZEN_UI_FORCE_SOURCE_TAB_RESTORE = nil
+        _G.__ZEN_UI_RAKUYOMI_RETURN_FILE = nil
+        if (is_restore_enabled() or force_source_restore)
+                and (force_source_restore or not skip_tabs_for_state[source_tab]) then
             local page = 1
             -- Group views expose page via M.getActivePage
             if gv and gv.getActivePage then
@@ -2255,6 +2296,8 @@ local function apply_navbar()
                 page         = page,
                 detail_group = detail_group,
                 detail_page  = detail_page,
+                force_restore = force_source_restore,
+                rakuyomi_return_file = rakuyomi_return_file,
             }
         else
             _G.__ZEN_UI_LIBRARY_STATE = nil
@@ -2326,13 +2369,30 @@ local function apply_navbar()
         _G.__ZEN_UI_OPEN_TARGET_TAB = nil
         local open_target_folder = rawget(_G, "__ZEN_UI_OPEN_TARGET_FOLDER")
         _G.__ZEN_UI_OPEN_TARGET_FOLDER = nil
-        local keep_book_location = rawget(_G, "__ZEN_UI_KEEP_BOOK_LOCATION") == true
+        local keep_book_location_requested = rawget(_G, "__ZEN_UI_KEEP_BOOK_LOCATION") == true
         _G.__ZEN_UI_KEEP_BOOK_LOCATION = nil
         local restore_enabled = is_restore_enabled()
-        local forced_default_tab = not open_home_after_filemanager
+        local state_before_show = rawget(_G, "__ZEN_UI_LIBRARY_STATE")
+        local force_source_restore = state_before_show and state_before_show.force_restore == true
+        local keep_book_location = keep_book_location_requested and not force_source_restore
+        if force_source_restore then
+            logger.dbg(
+                "zen-ui rakuyomi-return: showFiles restore state:",
+                "path=", tostring(path),
+                "focused_file=", tostring(focused_file),
+                "file=", tostring(state_before_show.rakuyomi_return_file),
+                "keep_requested=", tostring(keep_book_location_requested),
+                "open_home=", tostring(open_home_after_filemanager),
+                "open_target_tab=", tostring(open_target_tab),
+                "open_target_folder=", tostring(open_target_folder))
+        end
+        if force_source_restore then
+            _G.__ZEN_UI_FORCE_DEFAULT_LIBRARY_TAB = nil
+        end
+        local forced_default_tab = not force_source_restore
+            and not open_home_after_filemanager
             and rawget(_G, "__ZEN_UI_FORCE_DEFAULT_LIBRARY_TAB") == true
             and resolve_default_tab() or nil
-        local state_before_show = rawget(_G, "__ZEN_UI_LIBRARY_STATE")
         local default_tab = forced_default_tab or resolve_default_tab()
         -- When restore is disabled, open at library root immediately (no double render).
         local effective_focused = (restore_enabled or keep_book_location) and focused_file or nil
@@ -2349,6 +2409,7 @@ local function apply_navbar()
             or open_home_after_filemanager
             or open_target_tab
             or open_target_folder
+            or (state_before_show and state_before_show.force_restore)
             or (not restore_enabled
                 and not keep_book_location
                 and default_tab ~= "books")
@@ -2408,7 +2469,7 @@ local function apply_navbar()
             return
         end
         local state = rawget(_G, "__ZEN_UI_LIBRARY_STATE")
-        if not restore_enabled then
+        if not restore_enabled and not (state and state.force_restore) then
             _G.__ZEN_UI_LIBRARY_STATE = nil
             if not keep_book_location then
                 maybe_open_startup_default_tab(self)
@@ -2428,7 +2489,44 @@ local function apply_navbar()
         syncActiveTabLabel()
         -- Open group/standalone view synchronously (stack: [fm, group_menu])
         withBgTabRefreshSuppressed(function()
-            tab_callbacks[state.tab]()
+            local Rakuyomi = getRakuyomi()
+            local return_enabled = rakuyomi_return_to_chapter_list_on_exit_enabled()
+            local return_file = return_enabled and state.rakuyomi_return_file or nil
+            if not return_enabled then
+                state.rakuyomi_return_file = nil
+            end
+            if state.tab == "manga" and not return_enabled then
+                local opened_library = type(Rakuyomi.openLibraryView) == "function"
+                    and Rakuyomi.openLibraryView({ hideTopClose = true })
+                logger.dbg(
+                    "zen-ui rakuyomi-return: restore library:",
+                    "opened_library=", tostring(opened_library),
+                    "manga_action=", tostring(config.manga_action),
+                    "manga_destination=", tostring(config.manga_action == "folder"
+                        and config.manga_folder or config.manga_action))
+                return
+            end
+            if not return_file and state.tab == "manga" and return_enabled
+                    and type(focused_file) == "string" then
+                return_file = focused_file
+                state.rakuyomi_return_file = return_file
+            end
+            local has_file_opener = return_enabled
+                and type(Rakuyomi.openChapterListingFromFile) == "function"
+            local opened_chapters = return_file and has_file_opener
+                and Rakuyomi.openChapterListingFromFile(return_file, true)
+            logger.dbg(
+                "zen-ui rakuyomi-return: restore dispatch:",
+                "has_file=", tostring(return_file ~= nil),
+                "has_file_opener=", tostring(has_file_opener),
+                "opened_chapters=", tostring(opened_chapters),
+                "fallback_tab=", tostring(state.tab),
+                "manga_action=", tostring(config.manga_action),
+                "manga_destination=", tostring(config.manga_action == "folder"
+                    and config.manga_folder or config.manga_action))
+            if not opened_chapters then
+                tab_callbacks[state.tab]()
+            end
         end)
         -- If a detail view was open, open it synchronously too (stack: [fm, group_menu, detail_menu]).
         -- _repaint will then start from detail_menu and never show the intermediate views.
