@@ -8,6 +8,8 @@ local PresetStore = require("config/preset_store")
 local Registry = require("modules/filebrowser/patches/home/components/registry")
 local StandalonePage = require("modules/filebrowser/patches/standalone_page")
 local SharedState = require("common/shared_state")
+local title_sort = require("common/title_sort")
+local utils = require("common/utils")
 local WidgetResources = require("common/widget_resources")
 
 local M = {}
@@ -377,6 +379,7 @@ local function ensure_strip_module_cfg(dcfg, module_id)
         if mcfg.count > 5 then mcfg.count = 5 end
     end
     if mcfg.show_strip_titles == nil then mcfg.show_strip_titles = false end
+    if mcfg.center_books == nil then mcfg.center_books = false end
     return mcfg
 end
 
@@ -743,6 +746,7 @@ local function build_data_provider(cfg, dcfg)
                 queue_cover_upgrade(path)
             end
         end
+        pages = utils.getStablePageCount(path, pages)
 
         local pct = nil
         local status = nil
@@ -827,7 +831,7 @@ local function build_data_provider(cfg, dcfg)
             pages = pages,
             current_page = current_page,
             time_left_secs = time_left_secs,
-            stable_pages = stable_pages,
+            stable_pages = stable_pages or pages,
             stable_current_page = stable_current_page,
             stable_current_label = stable_current_label,
             stable_last_label = stable_last_label,
@@ -877,8 +881,8 @@ local function build_data_provider(cfg, dcfg)
                 end
                 if reverse then return ka > kb else return ka < kb end
             end
-            local sa = tostring(a.key):lower()
-            local sb = tostring(b.key):lower()
+            local sa = title_sort.key(a.key):lower()
+            local sb = title_sort.key(b.key):lower()
             if reverse then return sa > sb else return sa < sb end
         end)
 

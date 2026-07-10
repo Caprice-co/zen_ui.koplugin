@@ -162,6 +162,7 @@ return {
         "Add Incognito mode to Controls/Actions",
         "Add AI Assistant icon in lookup/highlight",
         "Add home API for plugin developers",
+        "Add option to center books in Home strip widgets",
         "Update status bar API to allow images",
         "Update Zen Updater plumbing",
         "Update Zen Bug Reporter to send Android crash logs",
@@ -169,6 +170,7 @@ return {
         "Moved Navbar settings to Library > Navbar",
         "Moved Advanced settings to About > Advanced",
         "Moved Global settings to Extras",
+        "Ignore English articles in title sort",
         "Bug fixes"
     },
 
