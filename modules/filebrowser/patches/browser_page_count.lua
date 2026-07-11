@@ -35,13 +35,35 @@ local function apply_browser_page_count()
         end
     end
 
-    -- Resolve page count: prefer stable sidecar pages after a book has opened,
-    -- then fall back to the raw BookInfoManager count for unread books.
+    -- Resolve page count: try BookList first (sidecar, any opened book),
+    -- then BookInfoManager DB (indexed PDFs / CBZ, even if never opened),
+    -- then Calibre metadata (reflowable formats never opened in KOReader,
+    -- estimated from Calibre's #words custom column).
     local function get_pages(filepath)
+        -- BookList sidecar — fastest path for any previously opened book.
+        local ok_bl, BookList = pcall(require, "ui/widget/booklist")
+        if ok_bl and BookList then
+            local bi = BookList.getBookInfo(filepath)
+            if bi and bi.pages and bi.pages > 0 then
+                return bi.pages
+            end
+        end
+        -- SQLite DB fallback (accurate for PDF/CBZ; nil for epub/fb2 unread).
         local bookinfo = BookInfoManager:getBookInfo(filepath, false)
-        return utils.getStablePageCount(filepath, bookinfo and bookinfo.pages)
+        if bookinfo and bookinfo.pages and bookinfo.pages > 0 then
+            return bookinfo.pages
+        end
+        -- Calibre metadata fallback — the book has never been opened in
+        -- KOReader and isn't a fixed-layout format, so estimate a stable
+        -- page count from Calibre's #words custom column.
+        local ok_cw, CalibreWords = pcall(require, "common/calibre_words")
+        if ok_cw and CalibreWords then
+            return CalibreWords.getPageEstimate(filepath)
+        end
+        return nil
     end
 
+    
     -- Pill drawing helper: draws a horizontal capsule shape row-by-row using scanline fill.
     -- bx, by: top-left corner;  bw, bh: total bounding box;  color: fill color.
     local function paintPill(bb, bx, by, bw, bh, color)
