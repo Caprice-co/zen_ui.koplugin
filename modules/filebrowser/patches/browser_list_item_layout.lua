@@ -449,7 +449,18 @@ local function apply_browser_list_item_layout()
             -- ── Progress / right widget ───────────────────────────────────────
             local percent_finished = book_info.percent_finished
             local status = book_info.status
-            local pages = zen_utils.getStablePageCount(filepath, book_info.pages or bookinfo.pages)
+            local pages = book_info.pages or bookinfo.pages
+            -- Neither source has a count for an unopened reflowable book
+            -- (EPUB/FB2) -- browser_page_count.lua's get_pages() already
+            -- falls back to a Calibre-#words/#pages-derived estimate for the
+            -- mosaic/gallery cover badge; show same here so list mode
+            -- shows a page count, instead of only after first open.
+             if not pages or pages == 0 then
+                local ok_cw, CalibreWords = pcall(require, "common/calibre_words")
+                if ok_cw and CalibreWords then
+                    pages = CalibreWords.getPageEstimate(filepath)
+                end
+            end
             local effective_status = book_status.getComputedStatus(
                 filepath, status, percent_finished
             )
